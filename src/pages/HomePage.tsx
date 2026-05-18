@@ -9,6 +9,7 @@ export default function HomePage() {
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [activeTool, setActiveTool] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -71,6 +72,7 @@ export default function HomePage() {
         <div className="flex items-center gap-6 text-sm font-medium">
           <a href="#dashboard" className="text-[#4E5969] hover:text-blue-600 transition-colors">数据看板</a>
           <a href="#services" className="text-[#4E5969] hover:text-blue-600 transition-colors">标的评估</a>
+          <a href="#tools" className="text-[#4E5969] hover:text-blue-600 transition-colors">实用工具</a>
           <a href="#ledger" className="text-[#4E5969] hover:text-blue-600 transition-colors">财务流转</a>
           {user ? (
             <div className="flex items-center gap-4 ml-4">
@@ -233,6 +235,150 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* 新增：专业打新工具集合 (参考 i668.vip) */}
+          <div id="tools" className="mb-20 pt-8">
+            <div className="border-b border-[#E5E6EB] pb-3 mb-6 flex justify-between items-end">
+              <h2 className="text-2xl font-bold text-[#1D2129]">专业打新工具箱</h2>
+              <span className="text-[#86909C] text-sm">Professional Tools</span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div onClick={() => setActiveTool('comparison')} className="bg-white border border-[#E5E6EB] p-5 rounded-xl hover:border-blue-500 hover:shadow-md cursor-pointer transition-all group">
+                <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center text-xl mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                  ⚖️
+                </div>
+                <h3 className="font-bold text-[#1D2129] mb-1">甲尾 VS 乙头</h3>
+                <p className="text-xs text-[#86909C]">顶格申购与乙组最低档收益对比模型</p>
+              </div>
+
+              <div onClick={() => setActiveTool('margin')} className="bg-white border border-[#E5E6EB] p-5 rounded-xl hover:border-blue-500 hover:shadow-md cursor-pointer transition-all group">
+                <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center text-xl mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                  💡
+                </div>
+                <h3 className="font-bold text-[#1D2129] mb-1">融资临界测算</h3>
+                <p className="text-xs text-[#86909C]">计算何种中签水位下融资打新可覆盖成本</p>
+              </div>
+
+              <div onClick={() => setActiveTool('cash')} className="bg-white border border-[#E5E6EB] p-5 rounded-xl hover:border-blue-500 hover:shadow-md cursor-pointer transition-all group">
+                <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center text-xl mb-4 group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                  💰
+                </div>
+                <h3 className="font-bold text-[#1D2129] mb-1">现金摸一手</h3>
+                <p className="text-xs text-[#86909C]">基于红鞋机制的“一手党”收益期望计算</p>
+              </div>
+
+              <div className="bg-white border border-[#E5E6EB] p-5 rounded-xl hover:border-blue-500 hover:shadow-md cursor-pointer transition-all group opacity-50">
+                <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center text-xl mb-4 transition-colors">
+                  🧮
+                </div>
+                <h3 className="font-bold text-[#1D2129] mb-1">打新历史回测</h3>
+                <p className="text-xs text-[#86909C]">开发中</p>
+              </div>
+              
+              <div className="bg-white border border-[#E5E6EB] p-5 rounded-xl hover:border-blue-500 hover:shadow-md cursor-pointer transition-all group opacity-50">
+                <div className="w-10 h-10 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center text-xl mb-4 transition-colors">
+                  🔬
+                </div>
+                <h3 className="font-bold text-[#1D2129] mb-1">乙头预测</h3>
+                <p className="text-xs text-[#86909C]">开发中</p>
+              </div>
+
+              <div className="bg-white border border-[#E5E6EB] p-5 rounded-xl hover:border-blue-500 hover:shadow-md cursor-pointer transition-all group opacity-50">
+                <div className="w-10 h-10 bg-cyan-50 text-cyan-600 rounded-lg flex items-center justify-center text-xl mb-4 transition-colors">
+                  📊
+                </div>
+                <h3 className="font-bold text-[#1D2129] mb-1">暗盘套利监控</h3>
+                <p className="text-xs text-[#86909C]">开发中</p>
+              </div>
+            </div>
+
+            {/* 工具交互计算面板 */}
+            {activeTool === 'comparison' && (
+              <div className="mt-8 bg-white border border-[#E5E6EB] p-6 rounded-xl shadow-sm relative">
+                <button onClick={() => setActiveTool(null)} className="absolute top-6 right-6 text-[#86909C] hover:text-[#1D2129]">✕ 关闭</button>
+                <h3 className="text-xl font-bold text-[#1D2129] mb-6 flex items-center gap-2"><span className="text-xl">⚖️</span> 甲尾 VS 乙头 收益对比计算器</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-[#4E5969] mb-1.5">入场费 (HK$)</label>
+                        <input type="number" defaultValue={5000} className="w-full px-3 py-2 border border-[#E5E6EB] rounded focus:outline-none focus:border-blue-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-[#4E5969] mb-1.5">预期首日涨幅 (%)</label>
+                        <input type="number" defaultValue={15} className="w-full px-3 py-2 border border-[#E5E6EB] rounded focus:outline-none focus:border-blue-500" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-[#4E5969] mb-1.5">甲尾预估中签率 (%)</label>
+                        <input type="number" defaultValue={2.5} className="w-full px-3 py-2 border border-[#E5E6EB] rounded focus:outline-none focus:border-blue-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-[#4E5969] mb-1.5">乙头预估中签手</label>
+                        <input type="number" defaultValue={3} className="w-full px-3 py-2 border border-[#E5E6EB] rounded focus:outline-none focus:border-blue-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-[#4E5969] mb-1.5">融资利率 (%) / 计息天数</label>
+                      <div className="flex gap-2">
+                        <input type="number" defaultValue={6.8} className="w-full px-3 py-2 border border-[#E5E6EB] rounded focus:outline-none focus:border-blue-500" />
+                        <input type="number" defaultValue={6} className="w-w-24 px-3 py-2 border border-[#E5E6EB] rounded focus:outline-none focus:border-blue-500" />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-[#F7F8FA] p-5 rounded-lg border border-[#E5E6EB]">
+                    <h4 className="font-medium text-[#1D2129] mb-4">对比结果测算</h4>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-end border-b border-[#E5E6EB] pb-3">
+                        <div>
+                          <p className="text-[#4E5969] text-sm">甲组尾 (预估打100手)</p>
+                          <p className="text-xs text-[#86909C] mt-1">成本: 本金50k / 融资息 HK$ 335</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-[#1D2129]">净利润: HK$ 1,540</p>
+                          <p className="text-xs text-blue-600 mt-0.5">收益率: 3.08%</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <p className="text-[#4E5969] text-sm font-bold text-red-500">乙组头 (稳中3手) 👑 推荐</p>
+                          <p className="text-xs text-[#86909C] mt-1">成本: 本金500k / 融资息 HK$ 3,350</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xl font-bold text-red-500">净利润: HK$ 2,900</p>
+                          <p className="text-xs text-red-500 mt-0.5">绝对利润占优</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {activeTool === 'margin' && (
+              <div className="mt-8 bg-white border border-[#E5E6EB] p-6 rounded-xl shadow-sm relative">
+                <button onClick={() => setActiveTool(null)} className="absolute top-6 right-6 text-[#86909C] hover:text-[#1D2129]">✕ 关闭</button>
+                <h3 className="text-xl font-bold text-[#1D2129] mb-6 flex items-center gap-2"><span className="text-xl">💡</span> 融资临界平衡点测算</h3>
+                <div className="text-[#4E5969] text-sm p-8 text-center border-2 border-dashed border-[#E5E6EB] rounded-lg">
+                  计算公式模型加载中...<br/>通过输入预估中签率和利息，寻找打平融资成本的最小涨幅阈值。
+                </div>
+              </div>
+            )}
+            
+            {activeTool === 'cash' && (
+              <div className="mt-8 bg-white border border-[#E5E6EB] p-6 rounded-xl shadow-sm relative">
+                <button onClick={() => setActiveTool(null)} className="absolute top-6 right-6 text-[#86909C] hover:text-[#1D2129]">✕ 关闭</button>
+                <h3 className="text-xl font-bold text-[#1D2129] mb-6 flex items-center gap-2"><span className="text-xl">💰</span> 现金摸一手套利测算</h3>
+                <div className="text-[#4E5969] text-sm p-8 text-center border-2 border-dashed border-[#E5E6EB] rounded-lg">
+                  结合港股红鞋机制分配曲线，评估多账户并行铺设“现金1手”策略的数学期望收益。
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 财务与分润结算模块 */}
