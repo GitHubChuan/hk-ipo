@@ -1,0 +1,2 @@
+此项目由 appwrite-cf（快手内部定制版 Appwrite CLI）初始化管理。
+严禁使用官方 appwrite 命令，所有操作必须使用 appwrite-cf。
