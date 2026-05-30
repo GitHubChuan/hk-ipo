@@ -24,3 +24,6 @@ dist-ssr
 # OS
 .DS_Store
 Thumbs.db
+
+# npm 本地内网源配置（CI 用公网源，不应入库）
+.npmrc
