@@ -6,7 +6,13 @@ import {
   type IpoCalendarEntry,
 } from '@/lib/market'
 import type { HistoricalIpo } from '@/lib/types'
-import { profitExpectationScore, oneLotHitRate } from '@/lib/engine'
+import {
+  profitExpectationScore,
+  oneLotHitRate,
+  leveragedActualProfit,
+  leveragedExpectedProfit,
+  DEFAULT_LEVERAGE,
+} from '@/lib/engine'
 import {
   SectionTitle,
   Tag,
@@ -107,6 +113,13 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
   const [lotsAssumed, setLotsAssumed] = useState(1)
   const [showModelCol, setShowModelCol] = useState(true)
 
+  // 杫杆参数（可调）
+  const [leverage, setLeverage] = useState(DEFAULT_LEVERAGE.leverage)
+  const [marginRate, setMarginRate] = useState(DEFAULT_LEVERAGE.marginRate)
+  const [daysHeld, setDaysHeld] = useState(DEFAULT_LEVERAGE.daysHeld)
+  const [redShoeDecay, setRedShoeDecay] = useState(DEFAULT_LEVERAGE.redShoeDecay ?? 0.7)
+  const leverageParams = { leverage, marginRate, daysHeld, redShoeDecay }
+
   const filtered = useMemo(() => {
     let arr = [...list]
     if (search.trim()) {
@@ -130,6 +143,17 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
     return map
   }, [filtered])
 
+  // 杠杆回放：用真实历史数据 + 当前杠杆参数算「如果开 N 倍杠杆当时能赚多少」
+  const levEvals = useMemo(() => {
+    const map: Record<string, ReturnType<typeof leveragedActualProfit>> = {}
+    filtered.forEach((h) => {
+      const base = h.entryFee ?? 0
+      const actualHit = h.applicants && h.winners ? h.winners / h.applicants : oneLotHitRate(h.subscriptionMultiple, 1.4)
+      map[h.code] = leveragedActualProfit(h.profitPerLot ?? 0, actualHit, base, leverageParams)
+    })
+    return map
+  }, [filtered, leverage, marginRate, daysHeld, redShoeDecay])
+
   const stats = useMemo(() => {
     if (filtered.length === 0) return null
     const total = filtered.length
@@ -145,6 +169,12 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
     const correct = filtered.filter((h) => modelEvals[h.code]?.modelAccuracy === 'correct').length
     const wrong = filtered.filter((h) => modelEvals[h.code]?.modelAccuracy === 'wrong').length
     const modelAcc = total > 0 ? (correct / total) * 100 : 0
+    // 杠杆汇总
+    const levNetSum = filtered.reduce((a, h) => a + (levEvals[h.code]?.netProfit ?? 0), 0)
+    const levCostSum = filtered.reduce((a, h) => a + (levEvals[h.code]?.financeCost ?? 0), 0)
+    const levSelfSum = filtered.reduce((a, h) => a + (h.entryFee ?? 0), 0)
+    const levRoi = levSelfSum > 0 ? (levNetSum / levSelfSum) * 100 : 0
+    const levLift = sumProfit > 0 ? levNetSum / sumProfit : 0
     return {
       total, profitable,
       hitRate: (profitable / total) * 100,
@@ -153,8 +183,40 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
       avgFirst: sumFirst / total,
       totalProfit, totalCost, roi,
       modelCorrect: correct, modelWrong: wrong, modelAcc,
+      levNetSum, levCostSum, levSelfSum, levRoi, levLift,
     }
-  }, [filtered, lotsAssumed, modelEvals])
+  }, [filtered, lotsAssumed, modelEvals, levEvals])
+
+  // ★ 分机制准确率（评估线上策略在不同机制下的可靠性）
+  const mechBreakdown = useMemo(() => {
+    const groups: Record<string, HistoricalIpo[]> = {}
+    filtered.forEach((h) => {
+      const k = h.mechanism ?? 'OTHER'
+      if (!groups[k]) groups[k] = []
+      groups[k].push(h)
+    })
+    return Object.entries(groups).map(([mech, arr]) => {
+      const total = arr.length
+      const profitable = arr.filter((h) => (h.profitPerLot ?? 0) > 0).length
+      const correct = arr.filter((h) => modelEvals[h.code]?.modelAccuracy === 'correct').length
+      const wrong = arr.filter((h) => modelEvals[h.code]?.modelAccuracy === 'wrong').length
+      const partial = total - correct - wrong
+      const avgProfit = arr.reduce((a, h) => a + (h.profitPerLot ?? 0), 0) / total
+      const avgDark = arr.reduce((a, h) => a + (h.darkChangePct ?? 0), 0) / total
+      const avgFirst = arr.reduce((a, h) => a + (h.firstDayChangePct ?? 0), 0) / total
+      const levNet = arr.reduce((a, h) => a + (levEvals[h.code]?.netProfit ?? 0), 0)
+      const levSelf = arr.reduce((a, h) => a + (h.entryFee ?? 0), 0)
+      const levRoi = levSelf > 0 ? (levNet / levSelf) * 100 : 0
+      return {
+        mech, total, profitable,
+        winRate: total ? (profitable / total) * 100 : 0,
+        correct, wrong, partial,
+        modelAcc: total ? (correct / total) * 100 : 0,
+        avgProfit, avgDark, avgFirst,
+        levNet, levRoi,
+      }
+    }).sort((a, b) => b.total - a.total)
+  }, [filtered, modelEvals, levEvals])
 
   const submitPaste = () => {
     const parsed = parseHistoricalPaste(pasteText)
@@ -249,6 +311,180 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
           </div>
         )}
       </section>
+
+      {/* ★ 杠杆参数面板 — 充分利用 10 倍融资 */}
+      <section className="border-2 border-accent p-5 bg-accent/5">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <div className="text-[10px] tracking-[0.3em] uppercase text-accent mb-1">LEVERAGE · 杠杆融资模型</div>
+            <h3 className="font-serif text-xl">10× 孖展打新 — 实战模拟</h3>
+            <p className="text-xs text-ink-mute mt-1">用真实历史数据回放：如果当时开 N 倍杠杆，扣掉融资利息后还剩多少。</p>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-widest text-ink-mute">假设单只自有 1 万 HKD</div>
+            <div className="num display text-2xl text-accent">{(leverage * 10000).toLocaleString()} <span className="text-xs">购买力</span></div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-[10px] tracking-[0.25em] uppercase text-ink-soft mb-1.5">
+              <InfoTip title="杠杆倍数" formula="购买力 = 自有 × 杠杆。10x 是港股孖展常见上限">杠杆倍数</InfoTip>
+            </div>
+            <input type="number" min={1} max={20} step={0.5} value={leverage} onChange={(e) => setLeverage(Math.max(1, +e.target.value || 1))}
+              className="w-full bg-transparent border-b border-ink/50 focus:border-accent outline-none py-1.5 text-sm font-mono"/>
+            <div className="text-[10px] text-ink-mute mt-1">大行 5-10x · 卷商 10-20x</div>
+          </div>
+          <div>
+            <div className="text-[10px] tracking-[0.25em] uppercase text-ink-soft mb-1.5">
+              <InfoTip title="年化融资利率" formula="融资成本 = 借入金额 × 年化利率 × 占用天数/365">年化利率 %</InfoTip>
+            </div>
+            <input type="number" min={0} max={20} step={0.1} value={marginRate} onChange={(e) => setMarginRate(Math.max(0, +e.target.value || 0))}
+              className="w-full bg-transparent border-b border-ink/50 focus:border-accent outline-none py-1.5 text-sm font-mono"/>
+            <div className="text-[10px] text-ink-mute mt-1">大行 2.5-4% · 卷商 4-8%</div>
+          </div>
+          <div>
+            <div className="text-[10px] tracking-[0.25em] uppercase text-ink-soft mb-1.5">
+              <InfoTip title="资金占用天数" formula="一般 T 日申购 → T+5/7 退款，约 5-7 自然日">占用天数</InfoTip>
+            </div>
+            <input type="number" min={1} max={14} value={daysHeld} onChange={(e) => setDaysHeld(Math.max(1, +e.target.value || 1))}
+              className="w-full bg-transparent border-b border-ink/50 focus:border-accent outline-none py-1.5 text-sm font-mono"/>
+            <div className="text-[10px] text-ink-mute mt-1">大多 5-7 天</div>
+          </div>
+          <div>
+            <div className="text-[10px] tracking-[0.25em] uppercase text-ink-soft mb-1.5">
+              <InfoTip
+                title="红鞋衰减系数"
+                formula="期望中签手数 ≈ 杠杆 × 一手率 × 衰减系数"
+                steps={[
+                  '0.5：杠杆派发严格按比例衰减（保守）',
+                  '0.7：默认 — 经验值，10x 申购约能拿到 5-7x 中签',
+                  '1.0：完全线性放大（过于乐观，红鞋不会这样派）',
+                ]}
+              >红鞋衰减</InfoTip>
+            </div>
+            <input type="number" min={0.3} max={1} step={0.05} value={redShoeDecay} onChange={(e) => setRedShoeDecay(Math.max(0.3, Math.min(1, +e.target.value || 0.7)))}
+              className="w-full bg-transparent border-b border-ink/50 focus:border-accent outline-none py-1.5 text-sm font-mono"/>
+            <div className="text-[10px] text-ink-mute mt-1">推荐 0.6 - 0.8</div>
+          </div>
+        </div>
+
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-accent/20">
+            <div className="border-2 border-ink p-4 bg-paper">
+              <div className="text-[10px] uppercase tracking-widest text-ink-mute">
+                <InfoTip title="纯现金组合收益" formula="Σ 每支单手实际盈利（不开杠杆）">现金 baseline</InfoTip>
+              </div>
+              <div className={`num display text-2xl ${stats.avgProfit >= 0 ? 'text-accent' : 'text-accent-2'}`}>{HKD(filtered.reduce((a, b) => a + (b.profitPerLot ?? 0), 0), false)}</div>
+              <div className="text-[11px] text-ink-mute">{filtered.length} 支 · 各中 1 手</div>
+            </div>
+            <div className="border-2 border-accent p-4 bg-accent/5">
+              <div className="text-[10px] uppercase tracking-widest text-accent">
+                <InfoTip
+                  title={`${leverage}x 杠杆净期望`}
+                  formula="Σ (期望中签手数 × 单手盈利) - Σ 融资利息"
+                  steps={[
+                    { label: '杠杆倍数', value: leverage + 'x' },
+                    { label: '红鞋衰减', value: redShoeDecay },
+                    { label: '总融资利息', value: HKD(stats.levCostSum) },
+                    { label: '杠杆净期望', value: HKD(stats.levNetSum) },
+                  ]}
+                >
+                  {leverage}x 净期望
+                </InfoTip>
+              </div>
+              <div className={`num display text-3xl ${stats.levNetSum >= 0 ? 'text-accent' : 'text-accent-2'}`}>{HKD(stats.levNetSum, false)}</div>
+              <div className="text-[11px] text-ink-mute">利息 -{HKD(stats.levCostSum, false)}</div>
+            </div>
+            <div className="border-2 border-ink p-4 bg-paper">
+              <div className="text-[10px] uppercase tracking-widest text-ink-mute">
+                <InfoTip title="自有资金 ROI" formula="杠杆净期望 / Σ 自有入场费 × 100%">自有 ROI</InfoTip>
+              </div>
+              <div className={`num display text-3xl ${stats.levRoi >= 0 ? 'text-accent' : 'text-accent-2'}`}>{Pct(stats.levRoi)}</div>
+              <div className="text-[11px] text-ink-mute">自有 {HKD(stats.levSelfSum, false)}</div>
+            </div>
+            <div className="border-2 border-ink p-4 bg-paper">
+              <div className="text-[10px] uppercase tracking-widest text-ink-mute">
+                <InfoTip title="杠杆放大倍数" formula="杠杆净期望 / 现金 baseline">vs 现金</InfoTip>
+              </div>
+              <div className={`num display text-3xl ${stats.levLift >= 1 ? 'text-accent' : 'text-accent-2'}`}>{stats.levLift.toFixed(2)}<span className="text-base font-sans">x</span></div>
+              <div className="text-[11px] text-ink-mute">{stats.levLift >= 1 ? '放大有效' : '反被利息侵蚀'}</div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ★ 分机制策略评估 */}
+      {mechBreakdown.length > 0 && (
+        <section className="border border-ink p-5 bg-paper-2/30">
+          <div className="flex items-baseline justify-between mb-4">
+            <div>
+              <div className="text-[10px] tracking-[0.3em] uppercase text-ink-mute mb-1">STRATEGY × MECHANISM</div>
+              <h3 className="font-serif text-xl">分机制：线上策略评估</h3>
+            </div>
+            <div className="text-[11px] text-ink-mute italic">不同机制下模型表现差异 — 找出策略最该重仓的板块</div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-ink text-paper">
+                <tr className="text-left">
+                  <th className="px-3 py-2 font-serif">机制</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">样本</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">实际盈利率</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">模型准确率</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">✓ / ✗ / ~</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">均暗盘</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">均首日</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">均单手</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">{leverage}x 净收益</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-widest text-right">{leverage}x ROI</th>
+                  <th className="px-3 py-2 text-[10px] uppercase tracking-widest text-center">线上策略</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mechBreakdown.map((r, i) => {
+                  const mechName = r.mech === 'B' ? '机制B' : r.mech
+                  // 线上策略推荐：模型准确率高 + 实际盈利率高 + 杠杆 ROI 为正 → 重仓
+                  let strategyLabel = '观望'
+                  let strategyVariant: 'success' | 'warn' | 'mute' | 'accent' = 'mute'
+                  if (r.modelAcc >= 70 && r.winRate >= 70 && r.levRoi > 0) {
+                    strategyLabel = '★ 重仓杠杆'
+                    strategyVariant = 'success'
+                  } else if (r.modelAcc >= 50 && r.winRate >= 50 && r.levRoi > 0) {
+                    strategyLabel = '现金常规'
+                    strategyVariant = 'accent'
+                  } else if (r.winRate < 50 || r.levRoi < 0) {
+                    strategyLabel = '⚠ 谨慎/跳过'
+                    strategyVariant = 'warn'
+                  }
+                  return (
+                    <tr key={r.mech} className={`border-b border-rule ${i % 2 === 0 ? 'bg-paper' : 'bg-paper-2/30'}`}>
+                      <td className="px-3 py-2 font-serif">{mechName}</td>
+                      <td className="px-2 py-2 text-right font-mono">{r.total}</td>
+                      <td className={`px-2 py-2 text-right font-mono ${r.winRate >= 50 ? 'text-accent' : 'text-accent-2'}`}>{r.winRate.toFixed(0)}%</td>
+                      <td className={`px-2 py-2 text-right font-mono ${r.modelAcc >= 60 ? 'text-accent' : r.modelAcc >= 40 ? 'text-ink' : 'text-accent-2'}`}>{r.modelAcc.toFixed(0)}%</td>
+                      <td className="px-2 py-2 text-right font-mono text-xs">
+                        <span className="text-accent">{r.correct}</span> / <span className="text-accent-2">{r.wrong}</span> / <span className="text-ink-mute">{r.partial}</span>
+                      </td>
+                      <td className={`px-2 py-2 text-right font-mono text-xs ${r.avgDark >= 0 ? 'text-accent' : 'text-accent-2'}`}>{Pct(r.avgDark)}</td>
+                      <td className={`px-2 py-2 text-right font-mono text-xs ${r.avgFirst >= 0 ? 'text-accent' : 'text-accent-2'}`}>{Pct(r.avgFirst)}</td>
+                      <td className={`px-2 py-2 text-right font-mono ${r.avgProfit >= 0 ? 'text-accent' : 'text-accent-2'}`}>{HKD(r.avgProfit, false)}</td>
+                      <td className={`px-2 py-2 text-right font-mono ${r.levNet >= 0 ? 'text-accent' : 'text-accent-2'}`}>{HKD(r.levNet, false)}</td>
+                      <td className={`px-2 py-2 text-right font-mono ${r.levRoi >= 0 ? 'text-accent' : 'text-accent-2'}`}>{Pct(r.levRoi)}</td>
+                      <td className="px-3 py-2 text-center"><Tag variant={strategyVariant}>{strategyLabel}</Tag></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 text-[11px] text-ink-mute italic">
+            策略含义：
+            <span className="text-accent">★ 重仓杠杆</span> = 模型准≥70% & 实际盈利率≥70% & 杠杆 ROI&gt;0；
+            <span className="text-accent">现金常规</span> = 中等准确度，建议现金 1 手；
+            <span className="text-accent-2">⚠ 谨慎</span> = 模型表现差或亏损，建议跳过。
+          </div>
+        </section>
+      )}
 
       {/* 统计 */}
       {stats && (

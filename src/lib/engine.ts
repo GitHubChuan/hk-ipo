@@ -74,6 +74,118 @@ export function profitExpectationScore(ipo: Ipo): {
   }
 }
 
+// ============================================================================
+// 港股打新 · 杠杆融资期望模型
+// ============================================================================
+// 实战逻辑：港股新股可走孖展（margin）融资，常见 10 倍杠杆
+//   - 1 万自有 → 10 万购买力 → 可申购 10 手（假设 1 手 1 万）
+//   - 融资部分按年化利率收息，占用天数从冻结日到退款日（一般 5-7 天）
+//   - 中签数量 ≈ 申购数量 × 比例（红鞋机制下并非完全线性，杠杆越高边际越低）
+//
+// 现实数据：
+//   - 大行（汇丰/中银）孖展利率 2.5% - 4% 年化
+//   - 互联网卷商（富途/老虎/华盛）孖展利率 4% - 8% 年化，但有 0 利息打新券
+//   - 占用天数：T 日申购，T+2 截止，T+4 公布配售，T+5 退款 ≈ 5-7 自然日
+//   - 红鞋衰减：杠杆 10x 申请 10 手 vs 现金申请 1 手，中签手数倍数 ≈ 5-8x
+//     而非 10x（因为甲组小户优先派发）
+
+export type LeverageParams = {
+  leverage: number       // 杠杆倍数（如 10）
+  marginRate: number     // 年化融资利率 %（如 5）
+  daysHeld: number       // 资金占用天数（如 7）
+  redShoeDecay?: number  // 红鞋衰减系数（杠杆下中签放大效率），默认 0.7
+}
+
+export const DEFAULT_LEVERAGE: LeverageParams = {
+  leverage: 10,
+  marginRate: 5.0,
+  daysHeld: 7,
+  redShoeDecay: 0.7,
+}
+
+/** 杠杆申购下的「期望中签手数」— 比现金高，但比线性放大低（红鞋衰减） */
+export function leveragedExpectedLots(
+  baseHitRate: number,
+  params: LeverageParams,
+): number {
+  const decay = params.redShoeDecay ?? 0.7
+  // 中签手数 ≈ leverage × baseHit × decay，并 cap 在 leverage 之内
+  return Math.min(params.leverage, params.leverage * baseHitRate * decay)
+}
+
+/** 杠杆融资成本（HKD） */
+export function leveragedFinanceCost(
+  baseFee: number,
+  params: LeverageParams,
+): number {
+  // 融资金额 = baseFee × (leverage - 1)（自有 1 份 + 融资 N-1 份）
+  const borrowed = baseFee * (params.leverage - 1)
+  return borrowed * (params.marginRate / 100) * (params.daysHeld / 365)
+}
+
+/** 杠杆期望净利润 = 期望中签手数 × 单手盈利 - 融资成本 */
+export function leveragedExpectedProfit(
+  ipo: Ipo,
+  params: LeverageParams = DEFAULT_LEVERAGE,
+): {
+  expectedLots: number       // 期望中签手数
+  grossProfit: number        // 中签部分毛利
+  financeCost: number        // 融资利息
+  netProfit: number          // 净期望
+  selfCapital: number        // 自有资金占用
+  leveragedAUM: number       // 杠杆后申购规模
+  roiOnSelf: number          // 自有资金 ROI %（关键指标）
+  cashExpected: number       // 对照：纯现金申购的期望
+  liftRatio: number          // 杠杆 vs 现金净利润倍数
+} {
+  const baseFee = ipo.entryFee || calcEntryFee(ipo.priceHigh, ipo.lotSize)
+  const hit = oneLotHitRate(ipo.oversubMultiple, ipo.redShoeBoost ?? 1.4)
+  const rise = (ipo.expectedRise ?? 0) / 100
+  const profitPerLot = baseFee * rise
+
+  const expectedLots = leveragedExpectedLots(hit, params)
+  const grossProfit = expectedLots * profitPerLot
+  const financeCost = leveragedFinanceCost(baseFee, params)
+  const netProfit = grossProfit - financeCost
+
+  const cashExpected = hit * profitPerLot  // 现金一手期望
+  const liftRatio = cashExpected > 0 ? netProfit / cashExpected : 0
+  const roiOnSelf = baseFee > 0 ? (netProfit / baseFee) * 100 : 0
+
+  return {
+    expectedLots,
+    grossProfit,
+    financeCost,
+    netProfit,
+    selfCapital: baseFee,
+    leveragedAUM: baseFee * params.leverage,
+    roiOnSelf,
+    cashExpected,
+    liftRatio,
+  }
+}
+
+/** 给定真实历史数据，回放「如果当时上了 N 倍杠杆」会赚多少 */
+export function leveragedActualProfit(
+  actualProfitPerLot: number,
+  actualHitRate: number,
+  baseFee: number,
+  params: LeverageParams = DEFAULT_LEVERAGE,
+): {
+  hitLots: number
+  grossProfit: number
+  financeCost: number
+  netProfit: number
+  roiOnSelf: number
+} {
+  const hitLots = leveragedExpectedLots(actualHitRate, params)
+  const grossProfit = hitLots * actualProfitPerLot
+  const financeCost = leveragedFinanceCost(baseFee, params)
+  const netProfit = grossProfit - financeCost
+  const roiOnSelf = baseFee > 0 ? (netProfit / baseFee) * 100 : 0
+  return { hitLots, grossProfit, financeCost, netProfit, roiOnSelf }
+}
+
 // 多标的并发时按"赚钱期望"排序，并给出额度分配建议
 // 资金分配核心：按期望从高到低，每只标的"先把高期望吃饱再分配低期望"
 export function allocateBudget(
