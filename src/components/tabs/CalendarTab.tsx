@@ -79,13 +79,26 @@ export default function CalendarTab({ onJumpEval }: Props) {
     setError(null)
     try {
       const r = await fetchIpoCalendar()
-      setCalendar(r.list)
-      setSource(r.source)
-      setLastSync(r.fetchedAt ?? Date.now())
-      if (r.list.length === 0) setError(r.error ?? '未抓到任何数据。')
-      else if (r.error) setError(r.error)
+      if (r.list.length === 0) {
+        // 所有代理都挂了 → 自动 fallback 到 i668 同步过来的示例数据，避免空白
+        const fallback = sampleIpoCalendar()
+        setCalendar(fallback)
+        setSource('i668 同步数据（兜底）')
+        setLastSync(Date.now())
+        setError(r.error ?? '远端数据源不可达，已加载兜底数据。')
+      } else {
+        setCalendar(r.list)
+        setSource(r.source)
+        setLastSync(r.fetchedAt ?? Date.now())
+        if (r.error) setError(r.error)
+      }
     } catch (e: any) {
-      if (!silent) setError(`抓取失败：${e?.message ?? '未知错误'}`)
+      // 网络异常也兜底
+      const fallback = sampleIpoCalendar()
+      setCalendar(fallback)
+      setSource('i668 同步数据（兜底）')
+      setLastSync(Date.now())
+      if (!silent) setError(`抓取失败，已加载兜底数据：${e?.message ?? '未知错误'}`)
     }
     if (!silent) setLoading(false)
   }
@@ -208,19 +221,22 @@ export default function CalendarTab({ onJumpEval }: Props) {
   const liveListings = ipos.filter((i) => i.liveQuote)
   const fmtTime = (t?: number | null) => t ? new Date(t).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' }) : '未'
 
-  // 招股中 / 待上市 / 已上市 分组：用 today 实时推断，不信任 e.status（可能是缓存的旧值）
+  // 招股中 / 待上市 / 已上市 分组
+  // 优先级：① today>listingDate → 已上市（铁律）；② e.status（i668 手工维护，准）；③ 日期窗口推断
   const today = new Date().toISOString().slice(0, 10)
   const inferStatus = (e: IpoCalendarEntry): '招股中' | '待上市' | '已上市' | '未知' => {
-    // 1) 已上市：listingDate <= today
+    // ① 铁律：今天已经过了上市日 → 已上市，覆盖一切
     if (e.listingDate && today > e.listingDate) return '已上市'
-    // 2) 招股中：今天落在 [subscriptionStart, subscriptionEnd] 区间
+    // ② 信任 i668/sample 显式给的 status（这是手工维护的准确值）
+    if (e.status === '招股中' || e.status === '待上市' || e.status === '已上市') {
+      return e.status
+    }
+    // ③ 没 status 字段时，按申购窗口推断
     if (e.subscriptionStart && e.subscriptionEnd) {
       if (today >= e.subscriptionStart && today <= e.subscriptionEnd) return '招股中'
     }
-    // 3) 待上市：还没到上市日，但也不在申购窗口内（或没有申购窗口信息）
+    // ④ 只有上市日 → 默认待上市
     if (e.listingDate && today <= e.listingDate) return '待上市'
-    // 4) 实在没日期就 fallback 到原始 status
-    if (e.status) return e.status as any
     return '未知'
   }
   const grouped = useMemo(() => {

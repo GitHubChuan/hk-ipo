@@ -9,7 +9,7 @@ import type { HistoricalIpo } from './types'
 
 // ────────────────────────── 通用工具 ──────────────────────────
 
-const CACHE_KEY_PREFIX = 'hk_ipo_market_cache_v2::'
+const CACHE_KEY_PREFIX = 'hk_ipo_market_cache_v3::'
 const CACHE_DEFAULT_TTL = 60 * 60 * 1000 // 1h
 
 export function readCache<T>(key: string, ttl = CACHE_DEFAULT_TTL): T | null {
@@ -233,14 +233,13 @@ function dedup<T extends { code?: string; name: string }>(arr: T[]): T[] {
 // ────────────────────────── 示例 + 手工粘贴 ──────────────────────────
 
 export function sampleIpoCalendar(): IpoCalendarEntry[] {
-  // 注：不再硬编码 status，由 CalendarTab.inferStatus 根据 today vs subscriptionEnd / listingDate 实时推断
-  // 数据源：i668.vip/stocks（截至 2026-05-29 抓取）
-  // 港股惯例：申购截止 ≈ 上市日前 4–5 个交易日
+  // 数据源：i668.vip/stocks（按 i668 实时维护的 status 为准）
+  // status 由 i668 维护，CalendarTab.inferStatus 会用 today > listingDate 的硬规则兜底，自动把过期的强制为「已上市」
   return [
-    { code: '02290.HK', name: '龙丰集团',  priceLow: 5.18,  priceHigh: 6.38,  lotSize: 500, subscriptionStart: '2026-05-26', subscriptionEnd: '2026-05-29', listingDate: '2026-06-05', mechanism: 'B', issueLots: 25000, issueAmount: 1450,  entryFeeMid: 3223, source: 'sample' },
-    { code: '01081.HK', name: '大金重工',  priceLow: 66.4,  priceHigh: 66.4,  lotSize: 100, subscriptionStart: '2026-05-27', subscriptionEnd: '2026-05-30', listingDate: '2026-06-05', mechanism: 'B', issueLots: 86966, issueAmount: 57746, entryFeeMid: 6707, source: 'sample' },
-    { code: '01779.HK', name: '天辰生物',  priceLow: 96.06, priceHigh: 96.06, lotSize: 50,  subscriptionStart: '2026-05-27', subscriptionEnd: '2026-05-30', listingDate: '2026-06-05', mechanism: 'B', issueLots: 28387, issueAmount: 13632, entryFeeMid: 4852, source: 'sample' },
-    { code: '02553.HK', name: '首钢朗泽',  priceLow: 17.1,  priceHigh: 17.1,  lotSize: 200, subscriptionStart: '2026-05-23', subscriptionEnd: '2026-05-28', listingDate: '2026-06-03', mechanism: 'B', issueLots: 20000, issueAmount: 3420,  entryFeeMid: 3455, source: 'sample' },
+    { code: '02290.HK', name: '龙丰集团',  priceLow: 5.18,  priceHigh: 6.38,  lotSize: 500, listingDate: '2026-06-05', mechanism: 'B', issueLots: 25000, issueAmount: 1450,  entryFeeMid: 3223, status: '招股中', source: 'i668' },
+    { code: '01081.HK', name: '大金重工',  priceLow: 66.4,  priceHigh: 66.4,  lotSize: 100, listingDate: '2026-06-05', mechanism: 'B', issueLots: 86966, issueAmount: 57746, entryFeeMid: 6707, status: '招股中', source: 'i668' },
+    { code: '01779.HK', name: '天辰生物',  priceLow: 96.06, priceHigh: 96.06, lotSize: 50,  listingDate: '2026-06-05', mechanism: 'B', issueLots: 28387, issueAmount: 13632, entryFeeMid: 4852, status: '招股中', source: 'i668' },
+    { code: '02553.HK', name: '首钢朗泽',  priceLow: 17.1,  priceHigh: 17.1,  lotSize: 200, listingDate: '2026-06-03', mechanism: 'B', issueLots: 20000, issueAmount: 3420,  entryFeeMid: 3455, status: '待上市', source: 'i668' },
   ]
 }
 

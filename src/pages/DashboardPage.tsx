@@ -102,7 +102,7 @@ export default function DashboardPage() {
         {tab === 'overview' && <OverviewTab onJumpTab={(id) => setTab(id as TabId)} />}
         {tab === 'calendar' && <CalendarTab onJumpEval={jumpToEval} />}
         {tab === 'eval' && <EvaluationTab focusEntry={focusEntry} onConsumeFocus={() => setFocusEntry(null)} />}
-        {tab === 'profit' && <ProfitBacktestTab />}
+        {tab === 'profit' && <ProfitBacktestTab onEvaluate={jumpToEval} />}
         {tab === 'alloc' && <AllocationTab />}
         {tab === 'holdings' && <HoldingsTab />}
         {tab === 'settle' && <SettlementTab />}
