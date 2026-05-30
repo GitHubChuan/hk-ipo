@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useLeverageParams, useStore } from '@/lib/store'
 import {
   getHistoricalIpos,
   saveHistoricalIpos,
@@ -103,6 +104,8 @@ function evaluateModel(h: HistoricalIpo): {
 }
 
 export default function ProfitBacktestTab({ onEvaluate }: Props) {
+  const globalLev = useLeverageParams()
+  const updateConfig = useStore((s) => s.updateConfig)
   const [list, setList] = useState<HistoricalIpo[]>(() => getHistoricalIpos())
   const [search, setSearch] = useState('')
   const [mechanismFilter, setMechanismFilter] = useState<string>('all')
@@ -113,12 +116,24 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
   const [lotsAssumed, setLotsAssumed] = useState(1)
   const [showModelCol, setShowModelCol] = useState(true)
 
-  // 杫杆参数（可调）
-  const [leverage, setLeverage] = useState(DEFAULT_LEVERAGE.leverage)
-  const [marginRate, setMarginRate] = useState(DEFAULT_LEVERAGE.marginRate)
-  const [daysHeld, setDaysHeld] = useState(DEFAULT_LEVERAGE.daysHeld)
-  const [redShoeDecay, setRedShoeDecay] = useState(DEFAULT_LEVERAGE.redShoeDecay ?? 0.7)
+  // 杠杆参数：本地草稿 ← 全局（§IX 设置）。改完点「同步回全局」让其他页面跟着变
+  const [leverage, setLeverage] = useState(globalLev.leverage)
+  const [marginRate, setMarginRate] = useState(globalLev.marginRate)
+  const [daysHeld, setDaysHeld] = useState(globalLev.daysHeld)
+  const [redShoeDecay, setRedShoeDecay] = useState(globalLev.redShoeDecay)
   const leverageParams = { leverage, marginRate, daysHeld, redShoeDecay }
+  const dirty = leverage !== globalLev.leverage || marginRate !== globalLev.marginRate
+    || daysHeld !== globalLev.daysHeld || redShoeDecay !== globalLev.redShoeDecay
+  const syncToGlobal = () => updateConfig({
+    leverageMultiple: leverage,
+    leverageMarginRate: marginRate,
+    leverageDaysHeld: daysHeld,
+    leverageRedShoeDecay: redShoeDecay,
+  })
+  const resetFromGlobal = () => {
+    setLeverage(globalLev.leverage); setMarginRate(globalLev.marginRate)
+    setDaysHeld(globalLev.daysHeld); setRedShoeDecay(globalLev.redShoeDecay)
+  }
 
   const filtered = useMemo(() => {
     let arr = [...list]
@@ -317,12 +332,21 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <div className="text-[10px] tracking-[0.3em] uppercase text-accent mb-1">LEVERAGE · 杠杆融资模型</div>
-            <h3 className="font-serif text-xl">10× 孖展打新 — 实战模拟</h3>
+            <h3 className="font-serif text-xl">{leverage}× 孖展打新 — 实战模拟</h3>
             <p className="text-xs text-ink-mute mt-1">用真实历史数据回放：如果当时开 N 倍杠杆，扣掉融资利息后还剩多少。</p>
+            <p className="text-[10px] text-accent mt-1 italic">
+              {dirty ? '⚠ 当前参数是本页临时草稿，未同步到全局' : '✓ 当前参数 = §IX 全局配置'}
+            </p>
           </div>
           <div className="text-right">
             <div className="text-[10px] uppercase tracking-widest text-ink-mute">假设单只自有 1 万 HKD</div>
             <div className="num display text-2xl text-accent">{(leverage * 10000).toLocaleString()} <span className="text-xs">购买力</span></div>
+            {dirty && (
+              <div className="mt-2 flex gap-1 justify-end">
+                <button onClick={syncToGlobal} className="text-[10px] uppercase tracking-widest px-2 py-1 bg-accent text-paper hover:opacity-80">同步回全局 →</button>
+                <button onClick={resetFromGlobal} className="text-[10px] uppercase tracking-widest px-2 py-1 border border-ink hover:bg-ink hover:text-paper">重置</button>
+              </div>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -563,6 +587,7 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
                   <th className="px-2 py-3 text-[10px] uppercase tracking-widest text-right cursor-pointer" onClick={() => toggleSort('darkChangePct')}>暗盘{sortArrow('darkChangePct')}</th>
                   <th className="px-2 py-3 text-[10px] uppercase tracking-widest text-right cursor-pointer" onClick={() => toggleSort('firstDayChangePct')}>首日{sortArrow('firstDayChangePct')}</th>
                   <th className="px-2 py-3 text-[10px] uppercase tracking-widest text-right cursor-pointer" onClick={() => toggleSort('profitPerLot')}>每手盈利{sortArrow('profitPerLot')}</th>
+                  <th className="px-2 py-3 text-[10px] uppercase tracking-widest text-right bg-accent/20">{leverage}×净ROI</th>
                   {showModelCol && <th className="px-2 py-3 text-[10px] uppercase tracking-widest text-center bg-accent text-paper">模型判断</th>}
                   <th className="px-2 py-3 text-[10px] uppercase tracking-widest text-right">操作</th>
                 </tr>
@@ -601,6 +626,32 @@ export default function ProfitBacktestTab({ onEvaluate }: Props) {
                       <td className={`px-2 py-3 text-right font-mono ${(h.darkChangePct ?? 0) >= 0 ? 'text-accent' : 'text-accent-2'}`}>{h.darkChangePct !== undefined ? Pct(h.darkChangePct) : '—'}</td>
                       <td className={`px-2 py-3 text-right font-mono ${(h.firstDayChangePct ?? 0) >= 0 ? 'text-accent' : 'text-accent-2'}`}>{h.firstDayChangePct !== undefined ? Pct(h.firstDayChangePct) : '—'}</td>
                       <td className={`px-2 py-3 text-right font-mono font-bold ${profitPositive ? 'text-accent' : 'text-accent-2'}`}>{h.profitPerLot !== undefined ? HKD(h.profitPerLot, false) : '—'}</td>
+                      <td className="px-2 py-3 text-right bg-accent/5">
+                        {(() => {
+                          const lv = levEvals[h.code]
+                          if (!lv || !h.entryFee) return <span className="text-ink-mute text-xs">—</span>
+                          const ok = lv.netProfit >= 0
+                          return (
+                            <InfoTip
+                              title={`${leverage}x 扣融资后净 ROI`}
+                              formula="(期望中签手数×单手盈利 - 融资利息) / 自有资金"
+                              steps={[
+                                { label: '自有资金', value: HKD(h.entryFee) },
+                                { label: '期望中签', value: `${lv.hitLots.toFixed(2)} 手` },
+                                { label: '毛利', value: HKD(lv.grossProfit) },
+                                { label: '- 融资利息', value: HKD(lv.financeCost) },
+                                { label: '= 净盈亏', value: HKD(lv.netProfit) },
+                                { label: '÷ 自有 = ROI', value: lv.roiOnSelf.toFixed(1) + '%' },
+                              ]}
+                            >
+                              <span className={`font-mono font-bold ${ok ? 'text-accent' : 'text-accent-2'}`}>
+                                {ok ? '+' : ''}{lv.roiOnSelf.toFixed(1)}%
+                              </span>
+                              <div className={`text-[9px] font-mono ${ok ? 'text-accent/70' : 'text-accent-2/70'}`}>{HKD(lv.netProfit, false)}</div>
+                            </InfoTip>
+                          )
+                        })()}
+                      </td>
                       {showModelCol && (
                         <td className="px-2 py-3 text-center">
                           {ev ? (

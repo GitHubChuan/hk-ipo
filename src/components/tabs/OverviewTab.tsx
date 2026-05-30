@@ -1,16 +1,35 @@
-import { useStore, useScopedData, useIsAdmin } from '@/lib/store'
+import { useStore, useScopedData, useIsAdmin, useLeverageParams } from '@/lib/store'
 import { calcEntryFee, profitExpectationScore } from '@/lib/engine'
 import { SectionTitle, StatBlock, Tag, HKD, Pct, PrimaryButton, InfoTip } from '@/components/shared/Editorial'
 
 export default function OverviewTab({ onJumpTab }: { onJumpTab: (id: string) => void }) {
   const isAdmin = useIsAdmin()
-  const { ipos, partners, settlements } = useScopedData()
+  const { ipos, partners, settlements, subscriptions } = useScopedData()
   const config = useStore((s) => s.config)
+  const lev = useLeverageParams()
 
   const activeIpos = ipos.filter((i) => ['watching', 'evaluating', 'decided_go', 'subscribed'].includes(i.status))
   const totalSettled = settlements.reduce((acc, s) => acc + s.totalProfit, 0)
   const wins = settlements.filter((s) => s.totalProfit > 0).length
   const winRate = settlements.length ? (wins / settlements.length) * 100 : 0
+
+  // 资金口径计算
+  const ownCapital = config.teamCapital
+  const theoreticalLeveraged = ownCapital * (lev.leverage - 1)  // 理论可融资
+  const brokerLimit = lev.brokerLimit
+  const usableFinance = Math.min(theoreticalLeveraged, brokerLimit)  // 实际可融资 = min(理论, 券商授信)
+  const totalFire = lev.enabled ? ownCapital + usableFinance : ownCapital  // 总火力
+  // 已冻结：所有「已申购」状态 IPO 的 subscription 的 entryFee × lotsApplied
+  const frozen = subscriptions
+    .filter((s) => activeIpos.some((i) => i.id === s.ipoId))
+    .reduce((acc, s) => {
+      const ipo = ipos.find((i) => i.id === s.ipoId)
+      if (!ipo) return acc
+      const fee = ipo.entryFee || calcEntryFee(ipo.priceHigh, ipo.lotSize)
+      return acc + fee * (s.lotsApplied ?? 0)
+    }, 0)
+  const remaining = Math.max(0, totalFire - frozen)
+  const utilization = totalFire > 0 ? (frozen / totalFire) * 100 : 0
 
   const ranked = activeIpos
     .map((i) => ({ ipo: i, score: profitExpectationScore(i) }))
@@ -82,9 +101,118 @@ export default function OverviewTab({ onJumpTab }: { onJumpTab: (id: string) => 
         </div>
       </section>
 
+      {/* ★ 资金口径分拆 — 杠杆决策核心 */}
       <section>
         <SectionTitle
           index="II"
+          en="Firepower Breakdown"
+          zh={lev.enabled ? `资金口径 · ${lev.leverage}× 杠杆模式` : '资金口径 · 现金模式'}
+          desc={lev.enabled ? '把"团队总资金"拆成 5 档：自有 / 可融资 / 总火力 / 已冻结 / 剩余可用' : '杠杆已在 §X 关闭，仅显示现金口径'}
+        />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="border-2 border-ink p-4 bg-paper">
+            <div className="text-[10px] uppercase tracking-widest text-ink-mute">
+              <InfoTip
+                title="自有本金"
+                formula="§X 设置里的「团队总资金」"
+                steps={[{ label: '合伙人合计', value: HKD(partners.reduce((a, p) => a + (p.capital ?? 0), 0)) }, { label: '团队池', value: HKD(ownCapital) }]}
+              >
+                ① 自有本金
+              </InfoTip>
+            </div>
+            <div className="num display text-2xl">{HKD(ownCapital, false)}</div>
+            <div className="text-[10px] text-ink-mute mt-1">SELF CAPITAL</div>
+          </div>
+
+          <div className={`border-2 p-4 ${lev.enabled ? 'border-accent bg-accent/5' : 'border-rule bg-paper-2/30 opacity-50'}`}>
+            <div className="text-[10px] uppercase tracking-widest text-ink-mute">
+              <InfoTip
+                title={`${lev.leverage}× 杠杆可融资额度`}
+                formula="min(自有 × (杠杆-1), 券商授信)"
+                steps={[
+                  { label: '理论值', value: HKD(theoreticalLeveraged) },
+                  { label: '券商授信', value: HKD(brokerLimit) },
+                  { label: '取小', value: HKD(usableFinance) },
+                ]}
+              >
+                ② 可融资额度
+              </InfoTip>
+            </div>
+            <div className={`num display text-2xl ${lev.enabled ? 'text-accent' : 'text-ink-mute'}`}>
+              {lev.enabled ? HKD(usableFinance, false) : '—'}
+            </div>
+            <div className="text-[10px] text-ink-mute mt-1">
+              {lev.enabled ? `${lev.leverage}x · ${lev.marginRate}%/yr` : 'LEVERAGE OFF'}
+            </div>
+          </div>
+
+          <div className="border-2 border-ink p-4 bg-ink text-paper">
+            <div className="text-[10px] uppercase tracking-widest text-paper/60">
+              <InfoTip
+                title="总火力"
+                formula="自有 + 可融资"
+                steps={[
+                  { label: '自有', value: HKD(ownCapital) },
+                  { label: '+ 可融资', value: HKD(lev.enabled ? usableFinance : 0) },
+                  { label: '= 总火力', value: HKD(totalFire) },
+                ]}
+              >
+                ③ 总火力
+              </InfoTip>
+            </div>
+            <div className="num display text-3xl">{HKD(totalFire, false)}</div>
+            <div className="text-[10px] text-paper/60 mt-1">TOTAL FIREPOWER</div>
+          </div>
+
+          <div className="border-2 border-warn/60 p-4 bg-warn/5">
+            <div className="text-[10px] uppercase tracking-widest text-warn">
+              <InfoTip
+                title="已冻结资金"
+                formula="Σ 在评/在仓 IPO 的 (入场费 × 申购手数)"
+                steps={[
+                  { label: '申购记录数', value: subscriptions.filter((s) => activeIpos.some((i) => i.id === s.ipoId)).length },
+                  { label: '已冻结', value: HKD(frozen) },
+                ]}
+              >
+                ④ 已冻结
+              </InfoTip>
+            </div>
+            <div className="num display text-2xl text-warn">-{HKD(frozen, false)}</div>
+            <div className="text-[10px] text-ink-mute mt-1">FROZEN · 待返款</div>
+          </div>
+
+          <div className="border-2 border-accent p-4 bg-paper">
+            <div className="text-[10px] uppercase tracking-widest text-accent">
+              <InfoTip
+                title="剩余可用"
+                formula="总火力 - 已冻结"
+                steps={[
+                  { label: '总火力', value: HKD(totalFire) },
+                  { label: '- 已冻结', value: HKD(frozen) },
+                  { label: '= 剩余', value: HKD(remaining) },
+                  { label: '使用率', value: utilization.toFixed(1) + '%' },
+                ]}
+              >
+                ⑤ 剩余火力
+              </InfoTip>
+            </div>
+            <div className="num display text-3xl text-accent">{HKD(remaining, false)}</div>
+            <div className="mt-1.5">
+              <div className="h-1 bg-rule overflow-hidden">
+                <div
+                  className={`h-full ${utilization > 80 ? 'bg-accent-2' : utilization > 50 ? 'bg-warn' : 'bg-accent'}`}
+                  style={{ width: `${Math.min(100, utilization)}%` }}
+                />
+              </div>
+              <div className="text-[10px] text-ink-mute mt-1">已用 {utilization.toFixed(0)}%</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <SectionTitle
+          index="III"
           en="Top Picks This Window"
           zh="本期重点推荐"
           desc='按「赚钱期望 = 一手中签率 × 一手金额 × 预期涨幅」自动排序，期望最高者优先吃满预算。'
@@ -169,7 +297,7 @@ export default function OverviewTab({ onJumpTab }: { onJumpTab: (id: string) => 
       </section>
 
       <section>
-        <SectionTitle index="III" en="Quick Bench" zh="快捷入口" />
+        <SectionTitle index="IV" en="Quick Bench" zh="快捷入口" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { id: 'calendar', en: 'Calendar', zh: '新股日历', desc: '抓取行事历与行情' },

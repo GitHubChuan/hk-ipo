@@ -50,7 +50,7 @@ export default function HoldingsTab() {
 
   return (
     <div className="space-y-12">
-      <SectionTitle index="IV" en="Holdings & Subscriptions" zh="持仓申购" desc="记录每位合伙人在每只新股上的实际申购、中签与融资成本，主理人兜底的部分会自动入账。" />
+      <SectionTitle index="VI" en="Holdings & Subscriptions" zh="持仓申购" desc="记录每位合伙人在每只新股上的实际申购、中签与融资成本，主理人兜底的部分会自动入账。" />
 
       {/* 头部统计 */}
       <section className="flex items-center justify-between border-b border-ink pb-5">

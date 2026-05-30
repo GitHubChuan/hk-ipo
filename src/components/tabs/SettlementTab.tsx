@@ -13,7 +13,7 @@ export default function SettlementTab() {
 
   return (
     <div className="space-y-12">
-      <SectionTitle index="VI" en="Exit & Settlement" zh="卖出策略与分润结算" desc='基于「暗盘 / 开盘 / 首日」涨幅给出离场建议；确认实际卖出后一键计算各合伙人净分润。' />
+      <SectionTitle index="VII" en="Exit & Settlement" zh="卖出策略与分润结算" desc='基于「暗盘 / 开盘 / 首日」涨幅给出离场建议；确认实际卖出后一键计算各合伙人净分润。' />
 
       {/* 卖出策略提示 */}
       <section>

@@ -32,7 +32,7 @@ export default function ReviewTab() {
 
   return (
     <div className="space-y-12">
-      <SectionTitle index="VII" en="Postmortem & Review" zh="历史复盘" desc="账本总有翻看的一天：每一笔结算、胜率、最大盈利与最痛的亏损都在此被审视。" />
+      <SectionTitle index="VIII" en="Postmortem & Review" zh="历史复盘" desc="账本总有翻看的一天：每一笔结算、胜率、最大盈利与最痛的亏损都在此被审视。" />
 
       {/* KPI */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-5">

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useStore, useScopedData, useIsAdmin } from '@/lib/store'
-import { calcEntryFee, profitExpectationScore, oneLotHitRate, leveragedExpectedProfit, DEFAULT_LEVERAGE } from '@/lib/engine'
+import { useStore, useScopedData, useIsAdmin, useLeverageParams } from '@/lib/store'
+import { calcEntryFee, profitExpectationScore, oneLotHitRate, leveragedExpectedProfit, type LeverageParams } from '@/lib/engine'
 import type { Ipo } from '@/lib/types'
 import { getHistoricalIpos, type IpoCalendarEntry } from '@/lib/market'
 import {
@@ -42,6 +42,13 @@ export default function EvaluationTab({ focusEntry, onConsumeFocus }: Props) {
   const isAdmin = useIsAdmin()
   const { ipos } = useScopedData()
   const { addIpo, updateIpo, removeIpo } = useStore()
+  const lev = useLeverageParams()
+  const LEV_PARAMS: LeverageParams = {
+    leverage: lev.leverage,
+    marginRate: lev.marginRate,
+    daysHeld: lev.daysHeld,
+    redShoeDecay: lev.redShoeDecay,
+  }
   const [draft, setDraft] = useState<typeof emptyDraft>(emptyDraft)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showBacktest, setShowBacktest] = useState(true)
@@ -350,29 +357,30 @@ export default function EvaluationTab({ focusEntry, onConsumeFocus }: Props) {
               <p className="text-sm text-ink-soft mt-3 leading-relaxed">{preview.rationale}</p>
             </div>
 
-            {/* ★ 10x 杠杆期望面板 */}
+            {/* ★ N× 杠杆期望面板 + 风险压力测试 */}
+            {lev.enabled && (
             <div className="mt-5 border-t-2 border-accent pt-4">
-              <div className="text-[10px] tracking-[0.3em] uppercase text-accent mb-2">10× LEVERAGE · 杠杆期望</div>
+              <div className="text-[10px] tracking-[0.3em] uppercase text-accent mb-2">{lev.leverage}× LEVERAGE · 杠杆期望</div>
               {(() => {
-                const lev = leveragedExpectedProfit(previewIpo, DEFAULT_LEVERAGE)
+                const levResult = leveragedExpectedProfit(previewIpo, LEV_PARAMS)
                 return (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <div className="text-[10px] uppercase tracking-widest text-ink-mute">
                         <InfoTip
-                          title="10x 杠杆期望中签"
-                          formula="期望中签手数 = 杠杆 × 一手率 × 红鞋衰减(0.7)"
+                          title={`${lev.leverage}x 杠杆期望中签`}
+                          formula={`期望中签手数 = 杠杆 × 一手率 × 红鞋衰减(${lev.redShoeDecay})`}
                           steps={[
-                            { label: '杠杆倍数', value: '10x' },
+                            { label: '杠杆倍数', value: `${lev.leverage}x` },
                             { label: '一手率', value: `${(preview.hitRate * 100).toFixed(1)}%` },
-                            { label: '红鞋衰减', value: '0.7' },
-                            { label: '= 期望中签', value: `${lev.expectedLots.toFixed(2)} 手` },
+                            { label: '红鞋衰减', value: String(lev.redShoeDecay) },
+                            { label: '= 期望中签', value: `${levResult.expectedLots.toFixed(2)} 手` },
                           ]}
                         >
                           期望中签手数
                         </InfoTip>
                       </div>
-                      <div className="num display text-2xl">{lev.expectedLots.toFixed(2)}</div>
+                      <div className="num display text-2xl">{levResult.expectedLots.toFixed(2)}</div>
                     </div>
                     <div>
                       <div className="text-[10px] uppercase tracking-widest text-ink-mute">
@@ -380,56 +388,122 @@ export default function EvaluationTab({ focusEntry, onConsumeFocus }: Props) {
                           title="融资利息成本"
                           formula="借入资金 × 年化利率 × 占用天数/365"
                           steps={[
-                            { label: '借入金额', value: HKD(previewIpo.entryFee * 9) },
-                            { label: '年化利率', value: `${DEFAULT_LEVERAGE.marginRate}%` },
-                            { label: '占用天数', value: `${DEFAULT_LEVERAGE.daysHeld} 天` },
-                            { label: '= 利息', value: HKD(lev.financeCost) },
+                            { label: '借入金额', value: HKD(previewIpo.entryFee * (lev.leverage - 1)) },
+                            { label: '年化利率', value: `${lev.marginRate}%` },
+                            { label: '占用天数', value: `${lev.daysHeld} 天` },
+                            { label: '= 利息', value: HKD(levResult.financeCost) },
                           ]}
                         >
                           融资利息
                         </InfoTip>
                       </div>
-                      <div className="num display text-2xl text-accent-2">-{HKD(lev.financeCost, false)}</div>
+                      <div className="num display text-2xl text-accent-2">-{HKD(levResult.financeCost, false)}</div>
                     </div>
                   </div>
                 )
               })()}
               {(() => {
-                const lev = leveragedExpectedProfit(previewIpo, DEFAULT_LEVERAGE)
+                const levResult = leveragedExpectedProfit(previewIpo, LEV_PARAMS)
+                const profitPerLot = previewIpo.entryFee * ((draft.expectedRise ?? 0) / 100)
                 return (
                   <>
                     <div className="mt-4 pt-3 border-t border-rule">
                       <div className="text-[10px] uppercase tracking-widest text-accent">
                         <InfoTip
-                          title="10x 净期望利润"
+                          title={`${lev.leverage}x 净期望利润`}
                           formula="期望中签手数 × 单手盈利 - 融资利息"
                           steps={[
-                            { label: '期望中签', value: `${lev.expectedLots.toFixed(2)} 手` },
-                            { label: '单手盈利', value: HKD((previewIpo.entryFee * ((draft.expectedRise ?? 0) / 100))) },
-                            { label: '毛利', value: HKD(lev.grossProfit) },
-                            { label: '- 利息', value: HKD(lev.financeCost) },
-                            { label: '= 净期望', value: HKD(lev.netProfit) },
+                            { label: '期望中签', value: `${levResult.expectedLots.toFixed(2)} 手` },
+                            { label: '单手盈利', value: HKD(profitPerLot) },
+                            { label: '毛利', value: HKD(levResult.grossProfit) },
+                            { label: '- 利息', value: HKD(levResult.financeCost) },
+                            { label: '= 净期望', value: HKD(levResult.netProfit) },
                           ]}
                         >
-                          10× 净期望
+                          {lev.leverage}× 净期望
                         </InfoTip>
                       </div>
-                      <div className={`num display text-4xl ${lev.netProfit >= 0 ? 'text-accent' : 'text-accent-2'}`}>{HKD(lev.netProfit, false)}</div>
+                      <div className={`num display text-4xl ${levResult.netProfit >= 0 ? 'text-accent' : 'text-accent-2'}`}>{HKD(levResult.netProfit, false)}</div>
                       <div className="text-[11px] text-ink-mute mt-1">
-                        自有资金 ROI <span className={`font-mono font-bold ${lev.roiOnSelf >= 0 ? 'text-accent' : 'text-accent-2'}`}>{lev.roiOnSelf.toFixed(1)}%</span>
+                        自有资金 ROI <span className={`font-mono font-bold ${levResult.roiOnSelf >= 0 ? 'text-accent' : 'text-accent-2'}`}>{levResult.roiOnSelf.toFixed(1)}%</span>
                         {' · '}
-                        vs 现金 <span className={`font-mono font-bold ${lev.liftRatio >= 1 ? 'text-accent' : 'text-accent-2'}`}>{lev.liftRatio.toFixed(2)}x</span>
+                        vs 现金 <span className={`font-mono font-bold ${levResult.liftRatio >= 1 ? 'text-accent' : 'text-accent-2'}`}>{levResult.liftRatio.toFixed(2)}x</span>
                       </div>
                     </div>
+
+                    {/* ★★ 风险压力测试矩阵 */}
+                    <div className="mt-5 pt-3 border-t border-rule">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[10px] tracking-[0.3em] uppercase text-accent-2">STRESS TEST · 压力测试</div>
+                        <span className="text-[10px] text-ink-mute italic">5 个情景×净利润、自有ROI、盈亏平衡</span>
+                      </div>
+                      <div className="overflow-x-auto -mx-1">
+                        <table className="w-full text-[11px] border-collapse">
+                          <thead>
+                            <tr className="border-b border-ink">
+                              <th className="text-left py-1.5 pr-2 font-serif text-ink-mute">情景</th>
+                              <th className="text-right py-1.5 px-1 font-mono">涨幅</th>
+                              <th className="text-right py-1.5 px-1 font-mono">净期望</th>
+                              <th className="text-right py-1.5 px-1 font-mono">自有ROI</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { name: '乐观', rise: 30, color: 'text-accent', tag: '₸ 爆款' },
+                              { name: '基准', rise: draft.expectedRise ?? 10, color: 'text-ink', tag: '模型预测' },
+                              { name: '温和', rise: 5, color: 'text-ink-soft', tag: '微涨' },
+                              { name: '保守', rise: -5, color: 'text-warn', tag: '小破发' },
+                              { name: '极端', rise: -20, color: 'text-accent-2', tag: '大破发' },
+                            ].map((sc) => {
+                              const scIpo = { ...previewIpo, expectedRise: sc.rise }
+                              const scLev = leveragedExpectedProfit(scIpo, LEV_PARAMS)
+                              const survives = scLev.netProfit >= 0
+                              return (
+                                <tr key={sc.name} className="border-b border-rule">
+                                  <td className="py-1.5 pr-2">
+                                    <span className={`${sc.color} font-semibold`}>{sc.name}</span>
+                                    <span className="text-ink-mute text-[9px] ml-1">{sc.tag}</span>
+                                  </td>
+                                  <td className={`text-right px-1 font-mono ${sc.color}`}>{sc.rise > 0 ? '+' : ''}{sc.rise}%</td>
+                                  <td className={`text-right px-1 font-mono ${survives ? 'text-accent' : 'text-accent-2'}`}>{HKD(scLev.netProfit, false)}</td>
+                                  <td className={`text-right px-1 font-mono ${survives ? 'text-accent' : 'text-accent-2'} font-bold`}>{scLev.roiOnSelf.toFixed(1)}%</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {(() => {
+                        // 盈亏平衡涨幅：使 netProfit = 0
+                        const baseFee = previewIpo.entryFee
+                        const hit = oneLotHitRate(previewIpo.oversubMultiple, previewIpo.redShoeBoost ?? 1.4)
+                        const expLots = Math.min(lev.leverage, lev.leverage * hit * lev.redShoeDecay)
+                        const interestCost = baseFee * (lev.leverage - 1) * (lev.marginRate / 100) * (lev.daysHeld / 365)
+                        const breakEvenRise = expLots > 0 ? (interestCost / (expLots * baseFee)) * 100 : 0
+                        return (
+                          <div className="mt-2 text-[10px] text-ink-mute italic">
+                            盈亏平衡涨幅 ≈ <span className="font-mono font-bold text-accent-2">{breakEvenRise.toFixed(2)}%</span>
+                            · 跨过这个阈值才能覆盖 {lev.leverage}× 融资利息
+                          </div>
+                        )
+                      })()}
+                    </div>
+
                     <p className="text-[11px] text-ink-mute mt-3 italic leading-relaxed">
-                      {lev.netProfit > 200 ? '★ 杠杆放大收益显著，建议开 10x 孖展冲量。' :
-                       lev.netProfit > 0 ? '杠杆有正期望但偏薄，可考虑申请 0 息打新券。' :
+                      {levResult.netProfit > 200 ? `★ 杠杆放大收益显著，建议开 ${lev.leverage}x 孖展冲量。` :
+                       levResult.netProfit > 0 ? '杠杆有正期望但偏薄，可考虑申请 0 息打新券。' :
                        '⚠ 利息会吃掉收益，不建议开杠杆。现金 1 手即可。'}
                     </p>
                   </>
                 )
               })()}
             </div>
+            )}
+            {!lev.enabled && (
+              <div className="mt-5 border-t border-rule pt-3 text-[11px] text-ink-mute italic">
+                §IX 设置里关闭了「杠杆决策面板」，当前仅显示现金口径。
+              </div>
+            )}
           </aside>
         </section>
       )}

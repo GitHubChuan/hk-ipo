@@ -220,6 +220,19 @@ export default function CalendarTab({ onJumpEval }: Props) {
   const liveListings = ipos.filter((i) => i.liveQuote)
   const fmtTime = (t?: number | null) => t ? new Date(t).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' }) : '未'
 
+  // 数据源状态徽章：根据来源 + 鲜度 + 错误来出颜色
+  const sourceStatus = (src: string, sync: number | null, err: string | null): { variant: 'success' | 'warn' | 'accent' | 'mute'; label: string } => {
+    if (err) return { variant: 'accent', label: '失败' }
+    if (!sync || src === '—') return { variant: 'mute', label: '未抓取' }
+    const age = Date.now() - sync
+    if (src.includes('兜底') || src.includes('示例') || src.includes('cache')) return { variant: 'warn', label: '兜底' }
+    if (age < 10 * 60 * 1000) return { variant: 'success', label: '新鲜' }
+    if (age < 60 * 60 * 1000) return { variant: 'mute', label: '稍旧' }
+    return { variant: 'warn', label: '老化' }
+  }
+  const calStatus = sourceStatus(source, lastSync, error)
+  const darkStatus = sourceStatus(darkSource, darkLastSync, darkError)
+
   // 招股中 / 待上市 / 已上市 分组
   // 优先级：① today>listingDate → 已上市（铁律）；② e.status（i668 手工维护，准）；③ 距上市日的相对天数推断
   const today = new Date().toISOString().slice(0, 10)
@@ -330,9 +343,12 @@ export default function CalendarTab({ onJumpEval }: Props) {
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">DATA SOURCE · 数据源</div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Tag variant="mute">日历：{source} · {fmtTime(lastSync)}</Tag>
-            <Tag variant="mute">暗盘：{darkSource} · {fmtTime(darkLastSync)}</Tag>
-            <label className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-ink-mute cursor-pointer">
+            <Tag variant={calStatus.variant}>● 日历 {calStatus.label}</Tag>
+            <Tag variant="mute">{source} · {fmtTime(lastSync)}</Tag>
+            <span className="text-ink-mute/40">|</span>
+            <Tag variant={darkStatus.variant}>● 暗盘 {darkStatus.label}</Tag>
+            <Tag variant="mute">{darkSource} · {fmtTime(darkLastSync)}</Tag>
+            <label className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-ink-mute cursor-pointer ml-2">
               <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="accent-accent" />
               暗盘自动轮询 5min
             </label>

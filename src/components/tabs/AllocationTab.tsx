@@ -32,7 +32,7 @@ export default function AllocationTab() {
   return (
     <div className="space-y-12">
       <SectionTitle
-        index="IV"
+        index="V"
         en="Capital Allocation"
         zh="额度分配"
         desc='并发期间的核心：把有限的预算先丢给"赚钱期望最高"的那一支，剩下按红鞋摸 1 手分散搭配。'

@@ -159,6 +159,13 @@ export type AppState = {
     defaultMarginDays: number
     defaultRedShoeBoost: number
     teamCapital: number
+    // 全局杠杆策略（10x 决策系统核心配置）
+    leverageEnabled: boolean       // 总开关
+    leverageMultiple: number       // 杠杆倍数，如 10
+    leverageMarginRate: number     // 融资年化利率 %，如 5.0
+    leverageDaysHeld: number       // 平均资金占用天数，如 7
+    leverageRedShoeDecay: number   // 红鞋衰减系数，如 0.7
+    leverageBrokerLimit: number    // 券商提供的融资额度上限 HKD（限制总火力）
     // 市场数据
     corsProxy: string
     autoRefreshQuote: boolean

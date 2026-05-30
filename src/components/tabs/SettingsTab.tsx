@@ -27,7 +27,7 @@ export default function SettingsTab() {
 
   return (
     <div className="space-y-12">
-      <SectionTitle index="IX" en="Configuration" zh="设置" desc="管理合伙人花名册、资金池参数与个人密码。" />
+      <SectionTitle index="X" en="Configuration" zh="设置" desc="管理合伙人花名册、资金池参数与个人密码。" />
 
       {/* 合伙人花名册 — 仅管理员 */}
       {isAdmin && (
@@ -154,6 +154,88 @@ export default function SettingsTab() {
             <Field label="CORS 行情代理" hint="用于跨域抓 AAStocks/腾讯">
               <TextInput value={config.corsProxy} onChange={(e) => updateConfig({ corsProxy: e.target.value })} />
             </Field>
+          </div>
+        </section>
+      )}
+
+      {/* 全局 10× 杠杆策略 — 决策系统核心 */}
+      {isAdmin && (
+        <section>
+          <div className="border-b-2 border-accent pb-3 mb-6 flex items-baseline justify-between">
+            <h3 className="font-serif text-2xl text-accent">10× 杠杆策略 · 全局配置</h3>
+            <span className="text-[10px] tracking-[0.3em] uppercase text-accent">LEVERAGE POLICY · 全站统一参数</span>
+          </div>
+          <div className="border border-accent/30 p-5 bg-accent/5 mb-4">
+            <p className="text-xs text-ink-soft leading-relaxed mb-3">
+              这一组参数决定 <strong>§III 标的评估</strong>、<strong>§IV 收益回测</strong> 与 <strong>§I 首页火力</strong> 三处的杠杆口径，
+              改任意一个会全站同步刷新。<strong className="text-accent">关掉「启用杠杆决策」</strong> 后，全站只算现金口径。
+            </p>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.leverageEnabled}
+                onChange={(e) => updateConfig({ leverageEnabled: e.target.checked })}
+                className="w-4 h-4 accent-accent"
+              />
+              <span className="font-semibold">启用杠杆决策面板</span>
+              <span className="text-[10px] uppercase tracking-widest text-ink-mute">
+                {config.leverageEnabled ? '✓ 当前杠杆模式已开启' : '✗ 当前仅现金模式'}
+              </span>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <Field label="杠杆倍数 (×)" hint="券商提供，例如 10× = 1自有+9融资">
+              <TextInput
+                type="number"
+                step={0.5}
+                min={1}
+                max={20}
+                value={config.leverageMultiple}
+                onChange={(e) => updateConfig({ leverageMultiple: +e.target.value })}
+              />
+            </Field>
+            <Field label="融资年化利率 %" hint="一般 4%–7%，建议谈到 5% 以下">
+              <TextInput
+                type="number"
+                step={0.1}
+                value={config.leverageMarginRate}
+                onChange={(e) => updateConfig({ leverageMarginRate: +e.target.value })}
+              />
+            </Field>
+            <Field label="资金占用天数" hint="申购→中签返款窗口，通常 5–9 天">
+              <TextInput
+                type="number"
+                value={config.leverageDaysHeld}
+                onChange={(e) => updateConfig({ leverageDaysHeld: +e.target.value })}
+              />
+            </Field>
+            <Field label="红鞋衰减系数" hint="0.5–0.8，越接近 1 越线性放大；A组小户回报折半">
+              <TextInput
+                type="number"
+                step={0.05}
+                min={0.1}
+                max={1}
+                value={config.leverageRedShoeDecay}
+                onChange={(e) => updateConfig({ leverageRedShoeDecay: +e.target.value })}
+              />
+            </Field>
+            <Field label="券商融资额度上限 (HKD)" hint="券商授信总额，约束「总火力」上限">
+              <TextInput
+                type="number"
+                value={config.leverageBrokerLimit}
+                onChange={(e) => updateConfig({ leverageBrokerLimit: +e.target.value })}
+              />
+            </Field>
+            <div className="border border-rule p-3 bg-paper-2/40 text-[11px] leading-relaxed">
+              <div className="text-[10px] uppercase tracking-widest text-ink-mute mb-1">SELF-CHECK · 火力体检</div>
+              <div>自有：<span className="font-mono">{(config.teamCapital/10000).toFixed(0)}万</span></div>
+              <div>理论可融资：<span className="font-mono">{(config.teamCapital * (config.leverageMultiple - 1) / 10000).toFixed(0)}万</span></div>
+              <div>券商授信：<span className="font-mono">{(config.leverageBrokerLimit/10000).toFixed(0)}万</span></div>
+              <div className="border-t border-rule mt-1 pt-1 text-accent font-semibold">
+                实际总火力：<span className="font-mono">{(Math.min(config.teamCapital * config.leverageMultiple, config.teamCapital + config.leverageBrokerLimit) / 10000).toFixed(0)}万</span>
+              </div>
+            </div>
           </div>
         </section>
       )}

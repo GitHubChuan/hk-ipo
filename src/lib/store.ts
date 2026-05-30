@@ -94,6 +94,13 @@ const initial: AppState = {
     defaultMarginDays: 6,
     defaultRedShoeBoost: 1.4,
     teamCapital: 1500000,
+    // 全局 10× 杠杆配置（决策系统核心）
+    leverageEnabled: true,
+    leverageMultiple: 10,
+    leverageMarginRate: 5.0,
+    leverageDaysHeld: 7,
+    leverageRedShoeDecay: 0.7,
+    leverageBrokerLimit: 15000000,  // 默认券商提供 1500w 融资额度
     corsProxy: 'https://corsproxy.io/?',
     autoRefreshQuote: true,
   },
@@ -249,7 +256,22 @@ export const useStore = create<AppState & Actions>()(
     }),
     {
       name: 'hk-ipo-store-v2',
-      version: 2,
+      version: 3,
+      migrate: (persisted: any, fromVersion: number) => {
+        if (fromVersion < 3 && persisted?.config) {
+          // v2 → v3：注入全局杠杆配置默认值
+          persisted.config = {
+            ...persisted.config,
+            leverageEnabled: persisted.config.leverageEnabled ?? true,
+            leverageMultiple: persisted.config.leverageMultiple ?? 10,
+            leverageMarginRate: persisted.config.leverageMarginRate ?? 5.0,
+            leverageDaysHeld: persisted.config.leverageDaysHeld ?? 7,
+            leverageRedShoeDecay: persisted.config.leverageRedShoeDecay ?? 0.7,
+            leverageBrokerLimit: persisted.config.leverageBrokerLimit ?? 15000000,
+          }
+        }
+        return persisted
+      },
       partialize: (s) => ({
         users: s.users,
         partners: s.partners,
@@ -271,6 +293,19 @@ export function useCurrentUser(): User | undefined {
 export function useIsAdmin(): boolean {
   const u = useCurrentUser()
   return u?.role === 'admin'
+}
+
+/** 全局杠杆配置 → LeverageParams，供 engine.ts 使用 */
+export function useLeverageParams() {
+  const config = useStore((s) => s.config)
+  return {
+    enabled: config.leverageEnabled,
+    leverage: config.leverageMultiple,
+    marginRate: config.leverageMarginRate,
+    daysHeld: config.leverageDaysHeld,
+    redShoeDecay: config.leverageRedShoeDecay,
+    brokerLimit: config.leverageBrokerLimit,
+  }
 }
 
 // 按当前用户角色过滤数据视图

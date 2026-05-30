@@ -71,7 +71,7 @@ export default function UsersTab() {
   return (
     <div className="space-y-12">
       <SectionTitle
-        index="VIII"
+        index="IX"
         en="User Management"
         zh="用户管理 · 仅管理员"
         desc="为每位合伙人开通账号，绑定到具体 Partner 后，他们登录后只能看到属于自己的标的、申购与分润数据。"
