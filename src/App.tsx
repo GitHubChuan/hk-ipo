@@ -1,14 +1,11 @@
-import { Routes, Route } from 'react-router'
-import HomePage from '@/pages/HomePage'
-import AboutPage from '@/pages/AboutPage'
+import { useStore, useCurrentUser, useIsAdmin } from '@/lib/store'
+import LoginPage from '@/pages/LoginPage'
+import DashboardPage from '@/pages/DashboardPage'
 
-function App() {
-  return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/about" element={<AboutPage />} />
-    </Routes>
-  )
+export default function App() {
+  const me = useCurrentUser()
+  if (!me) return <LoginPage />
+  return <DashboardPage />
 }
 
-export default App
+export { useIsAdmin, useStore }

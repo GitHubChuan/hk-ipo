@@ -1,95 +1,84 @@
-# React TypeScript Template
+# 港股打新合伙人工作台 · The IPO Ledger
 
-基于 **Vite + React + TypeScript** 的快手内部全栈项目起始模版，集成了常用依赖和配置，可用于快速搭建新项目。
+> 一份杂志感的"账本"——4–5 位合伙人共享一颗大脑，把每一支港股新股的评估、申购、卖出、分润、复盘全部沉淀成可量化的决策。
 
-## 技术栈
+[![Deploy on Vercel](https://vercel.com/button)](https://vercel.com/new/clone)
 
-| 类别 | 技术 |
-|------|------|
-| 框架 | Vite 8 + React 18 + TypeScript 5 |
-| UI | shadcn/ui + TailwindCSS v4 |
-| 路由 | React Router v7 |
-| 状态管理 | Zustand v5 |
-| 数据请求 | Fetch API |
-| 后端 / 部署 | 参见 `cf-web-artifacts` 或者 `website-builder` skill |
+## ✨ 特性
 
-## 目录结构
+| 模块 | 内容 |
+|---|---|
+| **§I 总览** | 头版头条、本期重点推荐、累计盈亏 KPI、跳转捷径 |
+| **§II 标的评估** | 录入新股 → 自动算"单手期望利润 / 中签率 / 推荐档位" |
+| **§III 额度分配** | 多新股并发时按赚钱期望排序，优先吃满高期望标的 |
+| **§IV 持仓申购** | 每位合伙人在每只新股的申购明细、融资成本、中签结果 |
+| **§V 卖出分润** | 暗盘/开盘/止损建议；一键计算各合伙人净分润（自动处理主理人兜底） |
+| **§VI 历史复盘** | 累计盈亏、月度走势、合伙人收入榜、逐笔流水 |
+| **§VII 设置** | 合伙人花名册、分润比例、访问口令、全局参数 |
 
-```
-react-ts/
-├── src/
-│   ├── pages/            # 页面组件
-│   ├── components/
-│   │   └── ui/           # shadcn/ui 组件（用 npx shadcn@latest add 添加）
-│   ├── lib/
-│   │   ├── appwrite.ts   # Appwrite client 初始化 + loginWithKuaishou
-│   │   └── utils.ts      # tailwind-merge / clsx 工具
-│   ├── App.tsx           # 路由配置（React Router <Routes>）
-│   ├── main.tsx          # 应用入口
-│   └── index.css
-├── .env.example          # 环境变量模版
-├── .npmrc                # 快手内部 npm 源配置
-├── components.json       # shadcn/ui 配置
-├── AGENTS.md             # AI Agent 上下文说明
-└── README.md
-```
+## 🧠 核心算法
 
-## 快速开始
+**赚钱期望 = 一手中签率 × 一手金额 × 预期涨幅**
+
+- **一手中签率** 经过红鞋机制加权：`min(1, max(1/超购倍数 × 红鞋系数, 下限))`
+  - 超购 < 50 倍 → 一手党最少 50%
+  - 超购 50–200 倍 → 最少 30%
+  - 超购 > 200 倍 → 最少 15%
+- **多标的并发** 时按期望从高到低排序：强烈推荐者优先吃满预算，其余按"全员各摸 1 手"红鞋套利
+- **离场建议** 基于上市/暗盘价对发行价的涨幅：≥30% 暗盘出货 / ≥15% 部分锁利 / <-10% 止损
+
+## 🚀 快速开始
 
 ```bash
-# 1. 复制环境变量
-cp .env.example .env.local
-# 填写 VITE_APPWRITE_PROJECT_ID
-
-# 2. 安装依赖
-pnpm install
-
-# 3. 启动开发服务器
-pnpm dev
-
-# 4. 构建
-pnpm build
+npm install
+npm run dev      # 本地开发
+npm run build    # 生产构建
 ```
 
-## 路由
+启动后默认访问密码：**`hkipo2026`**（首次登录后请到「设置」修改）。
 
-本模板使用 **React Router v7**，路由配置在 `src/App.tsx`，页面组件放在 `src/pages/`。
-
-**新增页面**：
-1. 在 `src/pages/` 下创建页面组件（如 `ProfilePage.tsx`）
-2. 在 `src/App.tsx` 的 `<Routes>` 中添加对应 `<Route>`
-
-```tsx
-// src/App.tsx
-<Routes>
-  <Route path="/" element={<HomePage />} />
-  <Route path="/about" element={<AboutPage />} />
-</Routes>
-```
-
-页面内跳转：
-
-```tsx
-import { Link, useNavigate } from 'react-router'
-
-<Link to="/about">关于</Link>
-
-const navigate = useNavigate()
-navigate('/about')
-navigate(-1) // 返回上一页
-```
-
-## 添加更多 shadcn/ui 组件
+## 🌐 部署到公网
 
 ```bash
-npx shadcn@latest add <component-name>
+# Vercel（推荐）
+vercel --prod
+
+# 或者：任何静态托管（Netlify / GitHub Pages / Cloudflare Pages）
+# 直接把 dist/ 上传即可，已配置好 SPA 重写（vercel.json）
 ```
 
-## 约束说明
+> 没有任何后端依赖，所有数据保存在每位合伙人自己的浏览器 LocalStorage 中。
 
-- **npm 源**：必须使用 `https://npm.corp.kuaishou.com/`
-- **Appwrite SDK**：只能使用 `@codeflicker/appwrite`，禁用官方包
-- **登录**：只允许快手 SSO (`OAuthProvider.Kuaishou`)
-- **UI 组件**：推荐使用 shadcn/ui + TailwindCSS
+## 🎨 设计
 
-> Appwrite 数据库配置、用户认证、部署等详细说明，请参见 `cf-web-artifacts` skill。
+精致编辑/杂志风（Editorial / Magazine）：
+- **字体**：`Cormorant Garamond` 衬线大标 × `Inter` 无衬线正文 × `JetBrains Mono` 数字
+- **配色**：象牙纸底 `#F5F2EA` + 深墨黑 `#1A1813` + 朱砂红强调 `#B83A2B`
+- 杂志感分割线、卷数索引（§I–§VII）、隶书数字（壹/贰/叁）
+
+## 🔒 安全
+
+- 不依赖任何 SSO，公网可直接访问
+- 用团队共享口令（哈希存储在浏览器）作为访问门槛
+- 所有业务数据**永远不离开浏览器**，云端零存储
+
+## 📁 目录
+
+```
+src/
+├── lib/
+│   ├── types.ts        # IPO/Partner/Subscription/Sale/Settlement 类型
+│   ├── engine.ts       # 决策引擎（期望、中签率、额度分配、离场建议、分润）
+│   └── store.ts        # Zustand + persist
+├── components/
+│   ├── shared/Editorial.tsx   # 杂志风通用组件
+│   └── tabs/                  # §I~§VII 七个 Tab
+├── pages/
+│   ├── LoginPage.tsx
+│   └── DashboardPage.tsx
+└── App.tsx
+```
+
+## 🛠️ 技术栈
+
+Vite 7 · React 18 · TypeScript 5 · TailwindCSS 4 · Zustand 5 · React Router 7
