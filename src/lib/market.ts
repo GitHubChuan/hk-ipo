@@ -1,10 +1,11 @@
-// 港股行情 & 新股日历 & 暗盘行情自动抓取
-// 浏览器跨域限制下的多重容错策略：
+// 港股行情 & 新股日历 & 暗盘行情 & 历史回测自动抓取
 //   1) 行情：用 JSONP 注入 <script> 拉腾讯 qt.gtimg.cn（原生免 CORS）
-//   2) 新股日历：依次尝试多个公开 CORS 代理，全部失败时返回 []
-//   3) 暗盘：AAStocks 暗盘页 / 雪球预上市 / 富途暗盘页 多源 + 缓存
+//   2) 新股日历：依次尝试多个公开 CORS 代理，失败用缓存
+//   3) 暗盘：AAStocks 暗盘页 / 富途暗盘 多源 + 缓存
+//   4) 历史回测：内置数据集 + 手工粘贴（可参考 i668.vip）
 
 import { useStore } from './store'
+import type { HistoricalIpo } from './types'
 
 // ────────────────────────── 通用工具 ──────────────────────────
 
@@ -133,7 +134,12 @@ export type IpoCalendarEntry = {
   subscriptionEnd?: string
   listingDate?: string
   industry?: string
-  source: 'aastocks' | 'xueqiu' | 'manual' | 'sample' | 'cache'
+  mechanism?: 'B' | '18C' | 'A' | 'SPAC' | 'GEM' | 'OTHER'
+  issueLots?: number
+  issueAmount?: number      // 万 HKD
+  entryFeeMid?: number      // HKD
+  status?: '招股中' | '待上市' | '已上市' | '即将招股'
+  source: 'aastocks' | 'xueqiu' | 'manual' | 'sample' | 'cache' | 'i668'
   rawSnippet?: string
 }
 
@@ -207,7 +213,6 @@ export async function fetchIpoCalendar(opts?: { useCache?: boolean }): Promise<{
     writeCache('ipo_calendar', r)
     return r
   }
-  // 兜底返回上次任何成功缓存（最长 7 天）
   const stale = readCache<{ list: IpoCalendarEntry[]; source: string; fetchedAt: number }>('ipo_calendar', 7 * 24 * 3600 * 1000)
   if (stale && stale.list.length) {
     return { list: stale.list.map((e) => ({ ...e, source: 'cache' })), source: `(过期缓存) ${stale.source}`, fetchedAt: stale.fetchedAt, error: '当前所有数据源/代理均不可达，展示的是历史缓存。' }
@@ -225,14 +230,14 @@ function dedup<T extends { code?: string; name: string }>(arr: T[]): T[] {
   })
 }
 
-// ────────────────────────── 兜底：示例 + 手工粘贴 ──────────────────────────
+// ────────────────────────── 示例 + 手工粘贴 ──────────────────────────
 
 export function sampleIpoCalendar(): IpoCalendarEntry[] {
   return [
-    { code: '02555.HK', name: '茶百道', priceLow: 17.5, priceHigh: 17.5, lotSize: 200, listingDate: '2024-04-23', industry: '现制饮品', source: 'sample' },
-    { code: '01810.HK', name: '小米集团-W', priceLow: 17, priceHigh: 22, lotSize: 200, listingDate: '示例', industry: '消费电子', source: 'sample' },
-    { code: '02666.HK', name: '某科技-B', priceLow: 12.8, priceHigh: 14.5, lotSize: 500, listingDate: '2026-06-10', industry: '生物科技', source: 'sample' },
-    { code: '06699.HK', name: '某新消费', priceLow: 8.0, priceHigh: 9.5, lotSize: 1000, listingDate: '2026-06-15', industry: '新茶饮', source: 'sample' },
+    { code: '02290.HK', name: '龙丰集团', priceLow: 5.18, priceHigh: 6.38, lotSize: 500, listingDate: '2026-06-05', mechanism: 'B', issueLots: 25000, entryFeeMid: 3223, status: '招股中', source: 'sample' },
+    { code: '01081.HK', name: '大金重工', priceLow: 66.4, priceHigh: 66.4, lotSize: 100, listingDate: '2026-06-05', mechanism: 'B', issueLots: 86966, entryFeeMid: 6707, status: '招股中', source: 'sample' },
+    { code: '01779.HK', name: '天辰生物', priceLow: 96.06, priceHigh: 96.06, lotSize: 50, listingDate: '2026-06-05', mechanism: 'B', issueLots: 28387, entryFeeMid: 4852, status: '招股中', source: 'sample' },
+    { code: '02553.HK', name: '首钢朗泽', priceLow: 17.1, priceHigh: 17.1, lotSize: 200, listingDate: '2026-06-03', mechanism: 'B', issueLots: 20000, entryFeeMid: 3455, status: '待上市', source: 'sample' },
   ]
 }
 
@@ -258,6 +263,10 @@ export function parseClipboardCalendar(raw: string): IpoCalendarEntry[] {
           subscriptionEnd: toDate(x.apply_end_date ?? x.subEnd ?? x.subscriptionEnd),
           listingDate: toDate(x.list_date ?? x.listingDate ?? x.LISTING_DATE),
           industry: x.industry ?? x.business?.slice(0, 30),
+          mechanism: x.mechanism,
+          issueLots: x.issueLots ?? x.issue_lots,
+          issueAmount: x.issueAmount ?? x.issue_amount,
+          entryFeeMid: x.entryFeeMid ?? x.entry_fee_mid,
           source: 'manual',
           rawSnippet: x.business?.slice(0, 160),
         }
@@ -288,9 +297,9 @@ export function parseClipboardCalendar(raw: string): IpoCalendarEntry[] {
 export type DarkPoolQuote = {
   code: string
   name: string
-  issuePrice?: number     // 招股价（上限）
-  darkPrice: number       // 暗盘最新价
-  changePct: number       // 相对招股价涨幅
+  issuePrice?: number
+  darkPrice: number
+  changePct: number
   high?: number
   low?: number
   volume?: number
@@ -299,9 +308,6 @@ export type DarkPoolQuote = {
   rawSnippet?: string
 }
 
-// 从 AAStocks 暗盘页抓取
-//   1) 即将上市的暗盘（昨日定价、今晚 4:15-6:30 PM 交易）
-//   2) 已上市当天的开盘前数据
 async function darkFromAAStocks(): Promise<DarkPoolQuote[]> {
   const target = 'https://www.aastocks.com/sc/stocks/market/ipo/listed/grey-market'
   const html = await fetchWithFallback(target)
@@ -336,12 +342,10 @@ async function darkFromAAStocks(): Promise<DarkPoolQuote[]> {
   } catch (e) { console.warn('[aastocks-dark parse]', e); return [] }
 }
 
-// 从富途暗盘页面抓取（HTML 比较稳定）
 async function darkFromFutu(): Promise<DarkPoolQuote[]> {
   const target = 'https://www.futunn.com/quote/hk/ipo'
   const html = await fetchWithFallback(target)
   if (!html) return []
-  // 富途页面以 Next.js 渲染，原始 HTML 里含一段 JSON __NEXT_DATA__，从中提 darkQuoteList
   try {
     const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]+?)<\/script>/)
     if (!m) return []
@@ -373,12 +377,11 @@ async function darkFromFutu(): Promise<DarkPoolQuote[]> {
 
 export async function fetchDarkPool(opts?: { useCache?: boolean }): Promise<{ list: DarkPoolQuote[]; source: string; error?: string; fetchedAt?: number }> {
   if (opts?.useCache !== false) {
-    const cached = readCache<{ list: DarkPoolQuote[]; source: string; fetchedAt: number }>('dark_pool', 10 * 60 * 1000) // 10min
+    const cached = readCache<{ list: DarkPoolQuote[]; source: string; fetchedAt: number }>('dark_pool', 10 * 60 * 1000)
     if (cached && cached.list.length) return { ...cached }
   }
   const aa = await darkFromAAStocks()
   const ft = await darkFromFutu()
-  // 合并去重，富途优先
   const map = new Map<string, DarkPoolQuote>()
   ft.forEach((q) => map.set(q.code, q))
   aa.forEach((q) => { if (!map.has(q.code)) map.set(q.code, q) })
@@ -391,7 +394,6 @@ export async function fetchDarkPool(opts?: { useCache?: boolean }): Promise<{ li
   return { list: [], source: '—', error: '暗盘数据源全部不可达。如今晚有暗盘，可手工粘贴：「02555 茶百道 17.5 → 21.5」' }
 }
 
-// 暗盘手工粘贴解析（容错：JSON 或行格式 "code name issuePrice -> darkPrice"）
 export function parseClipboardDarkPool(raw: string): DarkPoolQuote[] {
   if (!raw.trim()) return []
   try {
@@ -416,7 +418,6 @@ export function parseClipboardDarkPool(raw: string): DarkPoolQuote[] {
     }).filter(Boolean) as DarkPoolQuote[]
   } catch {
     return raw.split('\n').map((l) => l.trim()).filter(Boolean).map((line): DarkPoolQuote | null => {
-      // 支持："02555 茶百道 17.5 -> 21.5" 或 "02555 茶百道 17.5 21.5"
       const codeMatch = line.match(/\b(\d{4,5})\b/)
       const nums = (line.match(/\d+\.?\d*/g) ?? []).map(parseFloat).filter((n) => !isNaN(n) && n > 0 && n < 10000)
       const priceNums = nums.slice(codeMatch ? 1 : 0)
@@ -442,4 +443,91 @@ export function sampleDarkPool(): DarkPoolQuote[] {
     { code: '02666.HK', name: '某科技-B', issuePrice: 14.5, darkPrice: 18.8, changePct: 29.7, source: 'sample', fetchedAt: Date.now() },
     { code: '06699.HK', name: '某新消费', issuePrice: 9.5, darkPrice: 11.2, changePct: 17.9, source: 'sample', fetchedAt: Date.now() },
   ]
+}
+
+// ────────────────────────── 历史招股回测（参考 i668.vip） ──────────────────────────
+
+// 内置基础数据集 — 来自 i668.vip/stocks + /subscription + /profit 横切
+// 数据格式：[code, name, listingDate, mechanism, priceLow, priceHigh, issuePrice, lotSize,
+//            entryFee, issueLots, issueAmount(万), subscriptionMultiple,
+//            subscriptionAmount(亿), applicants, winners, intlAllocMultiple,
+//            darkChangePct, firstDayChangePct, profitPerLot]
+const HISTORICAL_SEED: HistoricalIpo[] = [
+  { code: '03388', name: '创想三维',   listingDate: '2026-05-29', mechanism: 'B',   priceLow: 18.8,  priceHigh: 18.8,   issuePrice: 18.8,   lotSize: 150, entryFee: 2849,  issueLots: 48952, issueAmount: 13800, subscriptionMultiple: 3829.42, subscriptionAmount: 5286.31, applicants: 251375, winners: 44336, intlAllocMultiple: 26.80, darkChangePct: 60.85, firstDayChangePct: 58.94, profitPerLot: 1663.82 },
+  { code: '03310', name: '云英谷科技', listingDate: '2026-05-27', mechanism: 'B',   priceLow: 20.81, priceHigh: 20.81,  issuePrice: 20.81,  lotSize: 200, entryFee: 4204,  issueLots: 26430, issueAmount: 11000, subscriptionMultiple: 3559.68, subscriptionAmount: 3915.71, applicants: 242444, winners: 25707, intlAllocMultiple:  7.05, darkChangePct: 20.52, firstDayChangePct: 18.93, profitPerLot:  787.10 },
+  { code: '02723', name: '深演智能',   listingDate: '2026-05-27', mechanism: 'B',   priceLow: 43.5,  priceHigh: 55.5,   issuePrice: 55.5,   lotSize: 100, entryFee: 5606,  issueLots:  9068, issueAmount:  5033, subscriptionMultiple: 5480.23, subscriptionAmount: 2758.06, applicants: 232456, winners:  9068, intlAllocMultiple:  3.41, darkChangePct: 168.47, firstDayChangePct: 165.13, profitPerLot: 9256.31 },
+  { code: '00901', name: '华曦达',     listingDate: '2026-05-27', mechanism: 'B',   priceLow: 32.8,  priceHigh: 32.8,   issuePrice: 32.8,   lotSize: 100, entryFee: 3314,  issueLots: 19208, issueAmount:  6300, subscriptionMultiple: 1971.99, subscriptionAmount: 1242.40, applicants: 177196, winners: 17058, intlAllocMultiple:  2.23, darkChangePct: 93.60, firstDayChangePct: 91.78, profitPerLot: 3010.49 },
+  { code: '06872', name: '丹诺医药',   listingDate: '2026-05-22', mechanism: 'B',   priceLow: 75.7,  priceHigh: 75.7,   issuePrice: 75.7,   lotSize:  50, entryFee: 3824,  issueLots: 16562, issueAmount:  6269, subscriptionMultiple: 9015.11, subscriptionAmount: 5651.32, applicants: 275978, winners: 16562, intlAllocMultiple:  9.24, darkChangePct: 94.19, firstDayChangePct: 92.55, profitPerLot: 3499.01 },
+  { code: '07688', name: '拓璞数控',   listingDate: '2026-05-20', mechanism: 'B',   priceLow: 26.39, priceHigh: 26.39,  issuePrice: 26.39,  lotSize: 100, entryFee: 2666,  issueLots: 65330, issueAmount: 17200, subscriptionMultiple: 3764.63, subscriptionAmount: 6490.44, applicants: 344049, winners: 56482, intlAllocMultiple: 30.46, darkChangePct: 47.78, firstDayChangePct: 45.93, profitPerLot: 1211.89 },
+  { code: '01511', name: '驭势科技',   listingDate: '2026-05-20', mechanism: '18C', priceLow: 60.3,  priceHigh: 60.3,   issuePrice: 60.3,   lotSize:  50, entryFee: 3046,  issueLots: 14462, issueAmount:  4360, subscriptionMultiple: 6777.29, subscriptionAmount: 2955.10, applicants: 285972, winners: 48689, intlAllocMultiple:  5.66, darkChangePct:  0.08, firstDayChangePct: -1.66, profitPerLot:  -50.06 },
+  { code: '06871', name: '翼菲科技',   listingDate: '2026-05-18', mechanism: '18C', priceLow: 30.5,  priceHigh: 30.5,   issuePrice: 30.5,   lotSize: 100, entryFee: 3081,  issueLots: 12300, issueAmount:  3752, subscriptionMultiple:14855.40, subscriptionAmount: 5573.00, applicants: 330334, winners: 48611, intlAllocMultiple:  9.77, darkChangePct: 75.57, firstDayChangePct: 73.05, profitPerLot: 2249.19 },
+  { code: '07666', name: '剂泰科技',   listingDate: '2026-05-13', mechanism: '18C', priceLow: 10.5,  priceHigh: 10.5,   issuePrice: 10.5,   lotSize: 500, entryFee: 5303,  issueLots: 20123, issueAmount: 10600, subscriptionMultiple: 6910.96, subscriptionAmount: 7301.14, applicants: 383309, winners: 65740, intlAllocMultiple: 33.86, darkChangePct: 188.76, firstDayChangePct: 185.10, profitPerLot: 9818.24 },
+  { code: '07630', name: '英派药业',   listingDate: '2026-05-13', mechanism: 'B',   priceLow: 19.75, priceHigh: 21.75,  issuePrice: 20.10,  lotSize: 200, entryFee: 4394,  issueLots: 20989, issueAmount:  8438, subscriptionMultiple: 2282.40, subscriptionAmount: 1925.79, applicants: 221788, winners: 18774, intlAllocMultiple: 24.58, darkChangePct: 60.70, firstDayChangePct: 58.92, profitPerLot: 2372.98 },
+  { code: '01236', name: '乐动机器人', listingDate: '2026-05-11', mechanism: 'B',   priceLow: 24.0,  priceHigh: 30.0,   issuePrice: 26.36,  lotSize: 200, entryFee: 6061,  issueLots: 16667, issueAmount:  8787, subscriptionMultiple: 6707.66, subscriptionAmount: 5893.92, applicants: 296740, winners: 16667, intlAllocMultiple:  9.54, darkChangePct: 88.92, firstDayChangePct: 86.20, profitPerLot: 4604.01 },
+  { code: '01187', name: '可孚医疗',   listingDate: '2026-05-06', mechanism: 'B',   priceLow: 39.33, priceHigh: 39.33,  issuePrice: 39.33,  lotSize: 100, entryFee: 3973,  issueLots: 27000, issueAmount: 10600, subscriptionMultiple:  399.08, subscriptionAmount:  423.79, applicants: 105939, winners: 15008, intlAllocMultiple:  3.40, darkChangePct:  1.86, firstDayChangePct:  0.25, profitPerLot:   10.00 },
+  { code: '01609', name: '天星医疗',   listingDate: '2026-05-05', mechanism: 'B',   priceLow: 98.5,  priceHigh: 98.5,   issuePrice: 98.5,   lotSize:  50, entryFee: 4975,  issueLots: 16844, issueAmount:  8296, subscriptionMultiple: 7823.13, subscriptionAmount: 6489.81, applicants: 300735, winners: 16844, intlAllocMultiple: 10.41, darkChangePct: 194.42, firstDayChangePct: 190.55, profitPerLot: 9487.97 },
+  { code: '06810', name: '商米科技-W', listingDate: '2026-04-29', mechanism: 'B',   priceLow: 24.86, priceHigh: 24.86,  issuePrice: 24.86,  lotSize: 100, entryFee: 2512,  issueLots: 42627, issueAmount: 10600, subscriptionMultiple: 2003.16, subscriptionAmount: 2122.76, applicants: 204939, winners: 32542, intlAllocMultiple:  7.91, darkChangePct: 276.71, firstDayChangePct: 271.65, profitPerLot: 6823.34 },
+  { code: '01879', name: '曦智科技-P', listingDate: '2026-04-28', mechanism: '18C', priceLow: 166.6, priceHigh: 183.2,  issuePrice: 183.2,  lotSize:  15, entryFee: 2776,  issueLots: 45985, issueAmount: 12600, subscriptionMultiple: 5784.70, subscriptionAmount: 7309.94, applicants: 378085, winners:134609, intlAllocMultiple: 53.83, darkChangePct: 351.15, firstDayChangePct: 345.50, profitPerLot: 9587.14 },
+  { code: '02493', name: '迈威生物-B', listingDate: '2026-04-28', mechanism: 'B',   priceLow: 27.64, priceHigh: 30.71,  issuePrice: 27.64,  lotSize: 200, entryFee: 6204,  issueLots: 23566, issueAmount: 13000, subscriptionMultiple:  481.71, subscriptionAmount:  627.54, applicants: 126378, winners: 14808, intlAllocMultiple:  3.46, darkChangePct:  2.89, firstDayChangePct:  1.30, profitPerLot:   78.87 },
+  { code: '03296', name: '华勤技术',   listingDate: '2026-04-23', mechanism: 'B',   priceLow: 77.7,  priceHigh: 77.7,   issuePrice: 77.7,   lotSize: 100, entryFee: 7849,  issueLots: 58549, issueAmount: 45500, subscriptionMultiple:  531.33, subscriptionAmount: 2417.16, applicants: 140150, winners: 42660, intlAllocMultiple: 13.34, darkChangePct: 20.98, firstDayChangePct: 19.40, profitPerLot: 1521.13 },
+  { code: '02476', name: '胜宏科技',   listingDate: '2026-04-21', mechanism: 'B',   priceLow: 209.88,priceHigh: 209.88, issuePrice: 209.88, lotSize: 100, entryFee: 21200, issueLots: 83348, issueAmount:174900, subscriptionMultiple:  431.15, subscriptionAmount: 7542.14, applicants: 250606, winners: 57137, intlAllocMultiple:  1.00, darkChangePct: 58.66, firstDayChangePct: 57.35, profitPerLot:12036.17 },
+  { code: '00068', name: '群核科技',   listingDate: '2026-04-17', mechanism: 'B',   priceLow:  6.72, priceHigh:  7.62,  issuePrice:  7.62,  lotSize: 500, entryFee: 3849,  issueLots: 32124, issueAmount: 12200, subscriptionMultiple: 1590.56, subscriptionAmount: 1946.73, applicants: 240700, winners: 28487, intlAllocMultiple: 14.46, darkChangePct: 157.22, firstDayChangePct: 153.85, profitPerLot: 5920.82 },
+  { code: '03277', name: '长光辰芯',   listingDate: '2026-04-17', mechanism: 'B',   priceLow: 39.88, priceHigh: 39.88,  issuePrice: 39.88,  lotSize: 100, entryFee: 4029,  issueLots: 65295, issueAmount: 26000, subscriptionMultiple: 1138.21, subscriptionAmount: 2963.86, applicants: 266501, winners: 45516, intlAllocMultiple: 22.69, darkChangePct: 71.26, firstDayChangePct: 69.95, profitPerLot: 2774.96 },
+]
+
+export function getHistoricalIpos(): HistoricalIpo[] {
+  const cached = readCache<HistoricalIpo[]>('historical_ipos', 7 * 24 * 3600 * 1000)
+  if (cached && cached.length) return cached
+  return HISTORICAL_SEED
+}
+
+export function saveHistoricalIpos(list: HistoricalIpo[]) {
+  writeCache('historical_ipos', list)
+}
+
+// 解析手工粘贴的 i668 表格行
+// 支持："03388 创想三维 20260529 48,952 1.38亿 3829.42 5286.31亿 251,375 44,336 26.80 +60.85%"
+export function parseHistoricalPaste(raw: string): HistoricalIpo[] {
+  if (!raw.trim()) return []
+  // JSON 优先
+  try {
+    const j = JSON.parse(raw)
+    if (Array.isArray(j)) return j as HistoricalIpo[]
+  } catch {}
+  // 行解析
+  const parseAmount = (s: string): number | undefined => {
+    if (!s) return undefined
+    const cleaned = s.replace(/,/g, '').trim()
+    const m = cleaned.match(/^([\d.]+)\s*(亿|万)?/)
+    if (!m) return undefined
+    const n = parseFloat(m[1])
+    if (isNaN(n)) return undefined
+    if (m[2] === '亿') return n * 10000   // 转为「万」
+    return n
+  }
+  const out: HistoricalIpo[] = []
+  for (const lineRaw of raw.split('\n')) {
+    const line = lineRaw.trim()
+    if (!line) continue
+    const codeMatch = line.match(/\b(\d{4,5})\b/)
+    if (!codeMatch) continue
+    const nameMatch = line.match(/[\u4e00-\u9fa5][\u4e00-\u9fa5A-Za-z\-]{1,15}/)
+    const dateMatch = line.match(/(\d{4})[-/]?(\d{2})[-/]?(\d{2})/)
+    const pctMatches = [...line.matchAll(/([+-]?[\d.]+)\s*%/g)]
+    const restNums = line.replace(/[\u4e00-\u9fa5\-/]/g, ' ').split(/\s+/).filter(Boolean)
+      .map((t) => parseFloat(t.replace(/[,亿万]/g, ''))).filter((n) => !isNaN(n))
+
+    out.push({
+      code: codeMatch[1].padStart(5, '0'),
+      name: nameMatch?.[0] ?? '—',
+      listingDate: dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : '',
+      lotSize: 100,
+      darkChangePct: pctMatches.length ? parseFloat(pctMatches[0][1]) : undefined,
+      firstDayChangePct: pctMatches.length > 1 ? parseFloat(pctMatches[1][1]) : undefined,
+      issueLots: restNums.find((n) => n > 1000 && n < 1000000),
+      issueAmount: parseAmount(line.match(/[\d.,]+\s*亿/)?.[0] ?? ''),
+      subscriptionMultiple: restNums.find((n) => n > 50 && n < 100000),
+    })
+  }
+  return out
 }

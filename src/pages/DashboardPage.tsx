@@ -9,28 +9,37 @@ import ReviewTab from '@/components/tabs/ReviewTab'
 import SettingsTab from '@/components/tabs/SettingsTab'
 import UsersTab from '@/components/tabs/UsersTab'
 import CalendarTab from '@/components/tabs/CalendarTab'
+import ProfitBacktestTab from '@/components/tabs/ProfitBacktestTab'
+import type { IpoCalendarEntry } from '@/lib/market'
 
 const ALL_TABS = [
-  { id: 'overview',   label: '总览',     en: 'Overview',    no: 'I',   adminOnly: false },
-  { id: 'calendar',   label: '新股日历', en: 'Calendar',    no: 'II',  adminOnly: false },
-  { id: 'eval',       label: '标的评估', en: 'Evaluation',  no: 'III', adminOnly: false },
-  { id: 'alloc',      label: '额度分配', en: 'Allocation',  no: 'IV',  adminOnly: false },
-  { id: 'holdings',   label: '持仓申购', en: 'Holdings',    no: 'V',   adminOnly: false },
-  { id: 'settle',     label: '卖出分润', en: 'Settlement',  no: 'VI',  adminOnly: false },
-  { id: 'review',     label: '历史复盘', en: 'Review',      no: 'VII', adminOnly: false },
-  { id: 'users',      label: '用户管理', en: 'Users',       no: 'VIII',adminOnly: true  },
-  { id: 'settings',   label: '设置',     en: 'Settings',    no: 'IX',  adminOnly: false },
+  { id: 'overview',   label: '总览',         en: 'Overview',    no: 'I',    adminOnly: false },
+  { id: 'calendar',   label: '新股日历',     en: 'Calendar',    no: 'II',   adminOnly: false },
+  { id: 'eval',       label: '标的评估',     en: 'Evaluation',  no: 'III',  adminOnly: false },
+  { id: 'profit',     label: '收益回测',     en: 'Backtest',    no: 'IV',   adminOnly: false },
+  { id: 'alloc',      label: '额度分配',     en: 'Allocation',  no: 'V',    adminOnly: false },
+  { id: 'holdings',   label: '持仓申购',     en: 'Holdings',    no: 'VI',   adminOnly: false },
+  { id: 'settle',     label: '卖出分润',     en: 'Settlement',  no: 'VII',  adminOnly: false },
+  { id: 'review',     label: '历史复盘',     en: 'Review',      no: 'VIII', adminOnly: false },
+  { id: 'users',      label: '用户管理',     en: 'Users',       no: 'IX',   adminOnly: true  },
+  { id: 'settings',   label: '设置',         en: 'Settings',    no: 'X',    adminOnly: false },
 ] as const
 
 type TabId = (typeof ALL_TABS)[number]['id']
 
 export default function DashboardPage() {
   const [tab, setTab] = useState<TabId>('overview')
+  const [focusEntry, setFocusEntry] = useState<IpoCalendarEntry | null>(null)
   const signOut = useStore((s) => s.signOut)
   const me = useCurrentUser()
   const isAdmin = useIsAdmin()
 
   const TABS = ALL_TABS.filter((t) => isAdmin || !t.adminOnly)
+
+  const jumpToEval = (entry: IpoCalendarEntry) => {
+    setFocusEntry(entry)
+    setTab('eval')
+  }
 
   return (
     <div className="min-h-screen bg-paper text-ink">
@@ -47,7 +56,7 @@ export default function DashboardPage() {
             <div className="text-right">
               <div className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">SIGNED IN AS</div>
               <div className="text-sm font-mono">
-                {me?.displayName} · <span className={isAdmin ? 'text-accent font-bold' : 'text-ink-soft'}>{isAdmin ? 'ADMIN' : 'PARTNER'}</span>
+                {me?.displayName} · <span className={isAdmin ? 'text-accent font-bold' : 'text-ink-soft'}>{isAdmin ? '主理人' : '合伙人'}</span>
               </div>
               <button
                 onClick={signOut}
@@ -70,7 +79,7 @@ export default function DashboardPage() {
                     onClick={() => setTab(t.id)}
                     className={[
                       'group px-5 py-4 border-r border-rule text-left flex-shrink-0',
-                      'min-w-[120px] transition-colors',
+                      'min-w-[110px] transition-colors',
                       active ? 'bg-ink text-paper' : 'hover:bg-paper-2',
                     ].join(' ')}
                   >
@@ -91,8 +100,9 @@ export default function DashboardPage() {
 
       <main className="max-w-7xl mx-auto px-8 py-10">
         {tab === 'overview' && <OverviewTab onJumpTab={(id) => setTab(id as TabId)} />}
-        {tab === 'calendar' && <CalendarTab />}
-        {tab === 'eval' && <EvaluationTab />}
+        {tab === 'calendar' && <CalendarTab onJumpEval={jumpToEval} />}
+        {tab === 'eval' && <EvaluationTab focusEntry={focusEntry} onConsumeFocus={() => setFocusEntry(null)} />}
+        {tab === 'profit' && <ProfitBacktestTab />}
         {tab === 'alloc' && <AllocationTab />}
         {tab === 'holdings' && <HoldingsTab />}
         {tab === 'settle' && <SettlementTab />}

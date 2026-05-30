@@ -3,7 +3,7 @@ import { useStore } from '@/lib/store'
 
 export default function LoginPage() {
   const signIn = useStore((s) => s.signIn)
-  const [username, setUsername] = useState('admin')
+  const [username, setUsername] = useState('')
   const [pwd, setPwd] = useState('')
   const [err, setErr] = useState('')
 
@@ -20,7 +20,7 @@ export default function LoginPage() {
         <div className="max-w-6xl mx-auto flex items-end justify-between">
           <div>
             <div className="text-[10px] tracking-[0.4em] uppercase text-ink-mute mb-2">
-              VOL. I · ISSUE 02 · {new Date().toLocaleDateString('zh-CN')}
+              VOL. I · {new Date().toLocaleDateString('zh-CN')}
             </div>
             <h1 className="font-serif display text-6xl md:text-7xl">The IPO Ledger</h1>
             <p className="text-sm text-ink-soft mt-1 italic">
@@ -41,7 +41,7 @@ export default function LoginPage() {
               From the Editor's Desk · 卷首语
             </div>
             <h2 className="font-serif display text-4xl md:text-5xl leading-tight">
-              用一份"账本"，<br />让 4 位合伙人，<br />在打新桌前共享一颗大脑。
+              用一份"账本"，<br />让合伙人，<br />在打新桌前共享一颗大脑。
             </h2>
             <div className="rule mt-8" />
             <div className="grid grid-cols-3 gap-6 text-sm pt-6">
@@ -51,11 +51,11 @@ export default function LoginPage() {
               </div>
               <div>
                 <div className="text-[10px] tracking-[0.25em] uppercase text-ink-mute mb-1">02 · 角色权限</div>
-                <p className="text-ink-soft leading-relaxed">超级管理员看全局；合伙人只看自己绑定的数据。</p>
+                <p className="text-ink-soft leading-relaxed">主理人看全局；合伙人只看自己绑定的数据。</p>
               </div>
               <div>
                 <div className="text-[10px] tracking-[0.25em] uppercase text-ink-mute mb-1">03 · 实时行情</div>
-                <p className="text-ink-soft leading-relaxed">自动抓港股新股日历与盘中报价，决策不再靠手抄。</p>
+                <p className="text-ink-soft leading-relaxed">自动抓港股新股日历、暗盘行情与盘中报价，决策不再靠手抄。</p>
               </div>
             </div>
           </section>
@@ -73,7 +73,7 @@ export default function LoginPage() {
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="admin"
+                    placeholder="请输入账号"
                     className="w-full bg-transparent border-b-2 border-ink focus:border-accent outline-none py-2 px-1 font-mono text-lg tracking-wider"
                     autoFocus
                   />
@@ -86,7 +86,7 @@ export default function LoginPage() {
                     type="password"
                     value={pwd}
                     onChange={(e) => setPwd(e.target.value)}
-                    placeholder="hkipo2026"
+                    placeholder="请输入密码"
                     className="w-full bg-transparent border-b-2 border-ink focus:border-accent outline-none py-2 px-1 font-mono text-lg tracking-wider"
                   />
                 </div>
@@ -100,8 +100,7 @@ export default function LoginPage() {
               </form>
               <div className="mt-8 pt-6 border-t border-rule">
                 <p className="text-xs text-ink-mute leading-relaxed">
-                  默认管理员 <span className="font-mono text-ink">admin / hkipo2026</span>。
-                  登录后请到「设置 → 用户管理」修改密码并为合伙人开通账号。
+                  尚未开通账号？请联系主理人为你创建合伙人入口。
                 </p>
               </div>
             </div>

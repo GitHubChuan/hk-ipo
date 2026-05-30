@@ -46,6 +46,11 @@ export type Ipo = {
   subscriptionStart?: string
   subscriptionEnd?: string
   listingDate?: string
+  // —— 招股结构（参考 i668.vip/stocks）
+  mechanism?: 'B' | '18C' | 'A' | 'SPAC' | 'GEM' | 'OTHER' // 机制类型：机制B / 18C 等
+  issueLots?: number     // 发行手数（公开发售的总手数）
+  issueAmount?: number   // 募集资金（HKD 万元）
+  entryFeeMid?: number   // 中位入场费（HKD）— 来自 i668
   aiQualityScore?: number
   expectedRise?: number
   oversubMultiple?: number
@@ -64,6 +69,10 @@ export type Ipo = {
     changePct: number
     fetchedAt: number
   }
+  // 暗盘数据（同步自 CalendarTab）
+  darkPrice?: number
+  darkChangePct?: number
+  darkFetchedAt?: number
   createdAt: number
   updatedAt: number
   createdByUserId?: string
@@ -96,6 +105,31 @@ export type Sale = {
   soldAt: string
   note?: string
   ownerUserId?: string
+}
+
+// 历史招股回测记录（评估申购手数/中签率/暗盘/首日涨幅，参考 i668.vip/subscription & /profit）
+export type HistoricalIpo = {
+  code: string
+  name: string
+  listingDate: string  // YYYY-MM-DD
+  mechanism?: 'B' | '18C' | 'A' | 'SPAC' | 'GEM' | 'OTHER'
+  priceLow?: number
+  priceHigh?: number
+  issuePrice?: number  // 最终发行价
+  lotSize: number
+  entryFee?: number
+  // 申购统计
+  issueLots?: number          // 发行手数
+  issueAmount?: number        // 募集资金（万 HKD）
+  subscriptionMultiple?: number  // 申购倍数（公开发售超购）
+  subscriptionAmount?: number    // 申购资金（亿 HKD）
+  applicants?: number         // 申购人数
+  winners?: number            // 中签人数
+  intlAllocMultiple?: number  // 国配倍数
+  // 收益
+  darkChangePct?: number      // 暗盘涨跌幅 %
+  firstDayChangePct?: number  // 首日涨跌幅 %
+  profitPerLot?: number       // 每手盈利（HKD）
 }
 
 export type Settlement = {

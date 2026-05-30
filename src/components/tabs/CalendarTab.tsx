@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useStore, useIsAdmin } from '@/lib/store'
 import {
   fetchIpoCalendar,
@@ -20,16 +20,21 @@ import {
   TextInput,
   EmptyState,
   Pct,
+  HKD,
   InfoTip,
 } from '@/components/shared/Editorial'
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000 // 5 分钟
 
-export default function CalendarTab() {
+type Props = {
+  onJumpEval?: (entry: IpoCalendarEntry) => void
+}
+
+export default function CalendarTab({ onJumpEval }: Props) {
   const { ipos, addIpo, updateIpo, config, updateConfig } = useStore()
   const isAdmin = useIsAdmin()
 
-  // 新股日历状态
+  // 新股日历
   const [calendar, setCalendar] = useState<IpoCalendarEntry[]>([])
   const [source, setSource] = useState<string>('—')
   const [loading, setLoading] = useState(false)
@@ -38,10 +43,10 @@ export default function CalendarTab() {
   const [showPaste, setShowPaste] = useState(false)
   const [pasteText, setPasteText] = useState('')
 
-  // 行情状态
+  // 行情
   const [refreshingQuotes, setRefreshingQuotes] = useState(false)
 
-  // 暗盘状态
+  // 暗盘
   const [darkPool, setDarkPool] = useState<DarkPoolQuote[]>([])
   const [darkSource, setDarkSource] = useState<string>('—')
   const [darkError, setDarkError] = useState<string | null>(null)
@@ -51,14 +56,13 @@ export default function CalendarTab() {
   const [darkPasteText, setDarkPasteText] = useState('')
   const [autoRefresh, setAutoRefresh] = useState(true)
 
-  // ─── 自动加载（首次进入用缓存）
+  // 自动加载
   useEffect(() => {
-    void syncCalendar(true) // 静默
+    void syncCalendar(true)
     void syncDark(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ─── 自动刷新暗盘（5 分钟一次，仅在该 tab 可见时）
   const tickRef = useRef<number | null>(null)
   useEffect(() => {
     if (!autoRefresh) return
@@ -70,7 +74,6 @@ export default function CalendarTab() {
     return () => { if (tickRef.current) window.clearInterval(tickRef.current) }
   }, [autoRefresh])
 
-  // ─── 同步新股日历
   const syncCalendar = async (silent = false) => {
     if (!silent) setLoading(true)
     setError(null)
@@ -87,7 +90,6 @@ export default function CalendarTab() {
     if (!silent) setLoading(false)
   }
 
-  // ─── 同步暗盘
   const syncDark = async (silent = false) => {
     if (!silent) setDarkLoading(true)
     setDarkError(null)
@@ -104,62 +106,33 @@ export default function CalendarTab() {
   }
 
   const loadSample = () => {
-    setCalendar(sampleIpoCalendar())
-    setSource('示例数据')
-    setLastSync(Date.now())
-    setError(null)
+    setCalendar(sampleIpoCalendar()); setSource('示例数据'); setLastSync(Date.now()); setError(null)
   }
-
   const loadDarkSample = () => {
-    setDarkPool(sampleDarkPool())
-    setDarkSource('示例数据')
-    setDarkLastSync(Date.now())
-    setDarkError(null)
+    setDarkPool(sampleDarkPool()); setDarkSource('示例数据'); setDarkLastSync(Date.now()); setDarkError(null)
   }
 
   const submitPaste = () => {
     const list = parseClipboardCalendar(pasteText)
-    if (list.length === 0) {
-      alert('解析不到有效数据。可粘贴雪球新股 API 的 JSON，或每行一支「02555 茶百道 17.5-17.5 2024-04-23」')
-      return
-    }
-    setCalendar(list)
-    setSource('手工粘贴')
-    setLastSync(Date.now())
-    setShowPaste(false)
-    setPasteText('')
+    if (list.length === 0) return alert('解析不到有效数据。可粘贴雪球新股 API 的 JSON，或每行一支「02555 茶百道 17.5-17.5 2024-04-23」')
+    setCalendar(list); setSource('手工粘贴'); setLastSync(Date.now()); setShowPaste(false); setPasteText('')
   }
-
   const submitDarkPaste = () => {
     const list = parseClipboardDarkPool(darkPasteText)
-    if (list.length === 0) {
-      alert('解析不到暗盘数据。可粘贴 JSON，或每行一支「02555 茶百道 17.5 21.5」')
-      return
-    }
-    setDarkPool(list)
-    setDarkSource('手工粘贴')
-    setDarkLastSync(Date.now())
-    setShowDarkPaste(false)
-    setDarkPasteText('')
+    if (list.length === 0) return alert('解析不到暗盘数据。可粘贴 JSON，或每行一支「02555 茶百道 17.5 21.5」')
+    setDarkPool(list); setDarkSource('手工粘贴'); setDarkLastSync(Date.now()); setShowDarkPaste(false); setDarkPasteText('')
   }
 
   const refreshQuotes = async () => {
     setRefreshingQuotes(true)
     const liveCodes = ipos.filter((i) => ['subscribed', 'listed'].includes(i.status)).map((i) => i.code)
-    if (liveCodes.length === 0) {
-      alert('当前没有「已申购 / 已上市」状态的标的，无须刷新行情')
-      setRefreshingQuotes(false)
-      return
-    }
+    if (liveCodes.length === 0) { alert('当前没有「已申购 / 已上市」状态的标的，无须刷新行情'); setRefreshingQuotes(false); return }
     const map = await fetchManyQuotes(liveCodes)
     let updated = 0
     ipos.forEach((i) => {
       const q = map[i.code]
       if (q && !isNaN(q.price)) {
-        updateIpo(i.id, {
-          liveQuote: { price: q.price, changePct: q.changePct, fetchedAt: q.fetchedAt },
-          listingOpenPrice: i.listingOpenPrice ?? q.open ?? q.price,
-        })
+        updateIpo(i.id, { liveQuote: { price: q.price, changePct: q.changePct, fetchedAt: q.fetchedAt }, listingOpenPrice: i.listingOpenPrice ?? q.open ?? q.price })
         updated++
       }
     })
@@ -168,32 +141,42 @@ export default function CalendarTab() {
   }
 
   const importEntry = (e: IpoCalendarEntry) => {
-    if (!isAdmin) return alert('只有超级管理员可以批量导入')
+    if (!isAdmin) { alert('只有主理人可以导入'); return null }
     const exists = ipos.find((x) => e.code && x.code === e.code)
     if (exists) {
       updateIpo(exists.id, {
         priceLow: e.priceLow ?? exists.priceLow,
         priceHigh: e.priceHigh ?? exists.priceHigh,
         listingDate: e.listingDate,
-      })
-      return
+        subscriptionEnd: e.subscriptionEnd ?? exists.subscriptionEnd,
+        mechanism: e.mechanism ?? exists.mechanism,
+        issueLots: e.issueLots ?? exists.issueLots,
+        issueAmount: e.issueAmount ?? exists.issueAmount,
+      } as any)
+      return exists.id
     }
     const priceHigh = e.priceHigh ?? 0
-    addIpo({
+    const lotSize = e.lotSize ?? 100
+    const id = addIpo({
       code: e.code ?? '',
       name: e.name,
       industry: e.industry,
       priceLow: e.priceLow ?? 0,
       priceHigh,
-      lotSize: e.lotSize ?? 100,
-      entryFee: priceHigh * (e.lotSize ?? 100) * 1.0077,
-      status: 'watching',
+      lotSize,
+      entryFee: e.entryFeeMid ?? priceHigh * lotSize * 1.0077,
+      status: 'evaluating',
       listingDate: e.listingDate,
+      subscriptionEnd: e.subscriptionEnd,
+      mechanism: e.mechanism,
+      issueLots: e.issueLots,
+      issueAmount: e.issueAmount,
       aiQualityScore: 6,
       expectedRise: 8,
       oversubMultiple: 30,
       redShoeBoost: 1.4,
-    })
+    } as any)
+    return id
   }
 
   const importAll = () => {
@@ -203,7 +186,11 @@ export default function CalendarTab() {
     alert(`完成 ✓ 共 ${calendar.length} 支`)
   }
 
-  // 把暗盘价同步回 ipos.darkPrice
+  const handleEvaluate = (e: IpoCalendarEntry) => {
+    importEntry(e)
+    onJumpEval?.(e)
+  }
+
   const syncDarkToIpos = () => {
     if (!isAdmin) return
     if (darkPool.length === 0) return alert('暗盘数据为空')
@@ -215,11 +202,92 @@ export default function CalendarTab() {
         matched++
       }
     })
-    alert(`已把暗盘价同步到 ${matched} / ${darkPool.length} 个匹配的标的 ✓\n（未匹配的可先在评估台录入这些标的）`)
+    alert(`已把暗盘价同步到 ${matched} / ${darkPool.length} 个匹配的标的 ✓`)
   }
 
   const liveListings = ipos.filter((i) => i.liveQuote)
   const fmtTime = (t?: number | null) => t ? new Date(t).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' }) : '未'
+
+  // 招股中 / 待上市 / 已上市 分组
+  const today = new Date().toISOString().slice(0, 10)
+  const inferStatus = (e: IpoCalendarEntry): '招股中' | '待上市' | '已上市' | '未知' => {
+    if (e.status) return e.status as any
+    if (e.subscriptionStart && e.subscriptionEnd) {
+      if (today >= e.subscriptionStart && today <= e.subscriptionEnd) return '招股中'
+    }
+    if (e.listingDate) {
+      if (today < e.listingDate) return '待上市'
+      if (today > e.listingDate) return '已上市'
+    }
+    return '未知'
+  }
+  const grouped = useMemo(() => {
+    const subscribing: IpoCalendarEntry[] = []
+    const upcoming: IpoCalendarEntry[] = []
+    const listed: IpoCalendarEntry[] = []
+    calendar.forEach((e) => {
+      const st = inferStatus(e)
+      if (st === '招股中') subscribing.push(e)
+      else if (st === '待上市') upcoming.push(e)
+      else if (st === '已上市') listed.push(e)
+      else upcoming.push(e)
+    })
+    return { subscribing, upcoming, listed }
+  }, [calendar])
+
+  const renderRow = (e: IpoCalendarEntry, i: number, opts?: { dim?: boolean }) => {
+    const st = inferStatus(e)
+    const stColor = st === '招股中' ? 'accent' : st === '待上市' ? 'warn' : 'mute'
+    const lotsAmt = e.issueLots ? (e.issueLots >= 10000 ? `${(e.issueLots / 10000).toFixed(1)}万` : e.issueLots.toLocaleString()) : '—'
+    const fundsAmt = e.issueAmount ? (e.issueAmount >= 10000 ? `${(e.issueAmount / 10000).toFixed(2)}亿` : `${e.issueAmount.toFixed(0)}万`) : '—'
+    return (
+      <article
+        key={`${e.code ?? e.name}-${i}`}
+        className={`grid grid-cols-12 gap-3 items-center border p-3 transition-colors cursor-pointer ${opts?.dim ? 'border-rule bg-paper/40 opacity-70 hover:opacity-100' : 'border-ink bg-paper hover:bg-paper-2/60'}`}
+        onClick={() => handleEvaluate(e)}
+        title="点击：导入并打开标的评估"
+      >
+        <div className="col-span-1 text-center">
+          <Tag variant={stColor as any}>{st}</Tag>
+        </div>
+        <div className="col-span-3">
+          <div className="font-serif text-lg leading-tight">{e.name}</div>
+          <div className="text-xs font-mono text-ink-mute">{e.code ?? '—'} {e.mechanism && <span className="ml-1 inline-block px-1 border border-rule">{e.mechanism === 'B' ? '机制B' : e.mechanism}</span>}</div>
+        </div>
+        <div className="col-span-2">
+          <div className="text-[10px] uppercase tracking-widest text-ink-mute">招股价 / 每手</div>
+          <div className="num text-sm">{e.priceLow && e.priceHigh ? (e.priceLow === e.priceHigh ? `HK$ ${e.priceHigh}` : `HK$ ${e.priceLow}–${e.priceHigh}`) : '—'}</div>
+          {e.lotSize && <div className="text-[10px] text-ink-soft">每手 {e.lotSize} 股 · 入场 {e.entryFeeMid ? HKD(e.entryFeeMid) : '—'}</div>}
+        </div>
+        <div className="col-span-2">
+          <div className="text-[10px] uppercase tracking-widest text-ink-mute">截止 / 上市</div>
+          <div className="num text-sm text-accent">{e.subscriptionEnd ?? '—'}</div>
+          <div className="text-[10px] text-ink-soft">上市 {e.listingDate ?? '—'}</div>
+        </div>
+        <div className="col-span-2">
+          <div className="text-[10px] uppercase tracking-widest text-ink-mute">发行 / 募集</div>
+          <div className="num text-sm">{lotsAmt} 手</div>
+          <div className="text-[10px] text-ink-soft">{fundsAmt}</div>
+        </div>
+        <div className="col-span-2 text-right">
+          <button
+            onClick={(ev) => { ev.stopPropagation(); handleEvaluate(e) }}
+            className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent"
+          >
+            评估 →
+          </button>
+          {isAdmin && (
+            <button
+              onClick={(ev) => { ev.stopPropagation(); importEntry(e); alert('已导入到评估台 ✓') }}
+              className="block mt-1 text-[10px] uppercase tracking-widest text-ink-mute hover:text-accent"
+            >
+              仅导入
+            </button>
+          )}
+        </div>
+      </article>
+    )
+  }
 
   return (
     <div className="space-y-12">
@@ -227,14 +295,14 @@ export default function CalendarTab() {
         index="II"
         en="IPO Calendar · Live Quotes · Dark Pool"
         zh="新股日历 · 实时行情 · 暗盘行情"
-        desc="雪球/AAStocks 新股日历自动抓取（带缓存）+ 腾讯港股盘中报价 + 富途/AAStocks 暗盘多源整合，进入即用缓存秒回填。"
+        desc="招股中标的优先展示。点击任意行可直接进入「标的评估」。"
       />
 
       {/* 数据源 + 操作 */}
       <section className="border border-ink p-5 bg-paper-2/40">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">DATA SOURCE · 数据源</div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Tag variant="mute">日历：{source} · {fmtTime(lastSync)}</Tag>
             <Tag variant="mute">暗盘：{darkSource} · {fmtTime(darkLastSync)}</Tag>
             <label className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-ink-mute cursor-pointer">
@@ -245,7 +313,7 @@ export default function CalendarTab() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
           <div className="md:col-span-5">
-            <Field label="自定义代理（推荐，留空则自动尝试公开代理）" hint="部署 Cloudflare Worker 最稳；URL 末尾 ? 或 / 自动适配">
+            <Field label="自定义代理（可选，留空自动尝试公开代理）" hint="部署 Cloudflare Worker 最稳；URL 末尾 ? 或 / 自动适配">
               <TextInput
                 value={config.corsProxy}
                 onChange={(e) => updateConfig({ corsProxy: e.target.value })}
@@ -273,12 +341,12 @@ export default function CalendarTab() {
 
         {showPaste && (
           <div className="mt-5 border border-rule p-4 bg-paper">
-            <div className="text-[10px] uppercase tracking-widest text-ink-mute mb-2">PASTE CALENDAR · 粘贴新股日历（雪球 JSON / 自定义文本）</div>
+            <div className="text-[10px] uppercase tracking-widest text-ink-mute mb-2">PASTE CALENDAR · 粘贴新股日历</div>
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
               rows={6}
-              placeholder='例：在浏览器打开 https://stock.xueqiu.com/v5/stock/preipo/hk/list.json?type=4&page=1&size=30 把 JSON 粘进来。或每行一支：02555 茶百道 17.5-17.5 2024-04-23'
+              placeholder='可粘贴雪球新股 JSON，或每行一支：02555 茶百道 17.5-17.5 2024-04-23'
               className="w-full font-mono text-xs border border-rule p-2 bg-paper-2"
             />
             <div className="flex gap-2 mt-2">
@@ -295,7 +363,7 @@ export default function CalendarTab() {
               value={darkPasteText}
               onChange={(e) => setDarkPasteText(e.target.value)}
               rows={6}
-              placeholder='例：每行一支「02555 茶百道 17.5 21.5」前面是招股价、后面是暗盘最新价。也支持 JSON：[{"code":"02555","name":"茶百道","issuePrice":17.5,"darkPrice":21.5}]'
+              placeholder='例：每行一支「02555 茶百道 17.5 21.5」前面是招股价、后面是暗盘价。也支持 JSON。'
               className="w-full font-mono text-xs border border-accent/30 p-2 bg-paper"
             />
             <div className="flex gap-2 mt-2">
@@ -305,41 +373,49 @@ export default function CalendarTab() {
           </div>
         )}
 
-        {error && (
-          <div className="mt-4 border-l-4 border-accent pl-3 py-2 text-sm text-accent bg-accent/5">
-            日历：{error}
+        {error && <div className="mt-4 border-l-4 border-accent pl-3 py-2 text-sm text-accent bg-accent/5">日历：{error}</div>}
+        {darkError && <div className="mt-2 border-l-4 border-accent-2 pl-3 py-2 text-sm text-accent-2 bg-accent-2/5">暗盘：{darkError}</div>}
+      </section>
+
+      {/* ① 招股中 — 置顶 */}
+      <section>
+        <div className="border-b-2 border-accent pb-3 mb-6 flex items-baseline justify-between">
+          <div>
+            <div className="text-[10px] tracking-[0.3em] uppercase text-accent">SUBSCRIBING · 当下可申购</div>
+            <h3 className="font-serif text-3xl">招股中 · {grouped.subscribing.length}</h3>
           </div>
-        )}
-        {darkError && (
-          <div className="mt-2 border-l-4 border-accent-2 pl-3 py-2 text-sm text-accent-2 bg-accent-2/5">
-            暗盘：{darkError}
+          <div className="flex items-center gap-3">
+            {isAdmin && grouped.subscribing.length > 0 && (
+              <button onClick={() => grouped.subscribing.forEach(importEntry)} className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent">
+                全部导入 →
+              </button>
+            )}
+          </div>
+        </div>
+        {grouped.subscribing.length === 0 ? (
+          <EmptyState title="近期暂无招股中标的" hint='点上方「↻ 抓新股日历」或「示例日历」获取最新。' />
+        ) : (
+          <div className="space-y-2">
+            {grouped.subscribing.map((e, i) => renderRow(e, i))}
           </div>
         )}
       </section>
 
-      {/* 暗盘行情 ⭐ 新增 */}
+      {/* ② 暗盘 — 次优 */}
       <section>
         <div className="border-b border-ink pb-3 mb-6 flex items-baseline justify-between">
-          <h3 className="font-serif text-2xl">🌙 暗盘行情</h3>
+          <h3 className="font-serif text-2xl">🌙 暗盘行情 · {darkPool.length}</h3>
           <div className="flex items-center gap-3">
             {isAdmin && darkPool.length > 0 && (
-              <button
-                onClick={syncDarkToIpos}
-                className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent"
-              >
+              <button onClick={syncDarkToIpos} className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent">
                 同步到标的 →
               </button>
             )}
-            <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">
-              DARK POOL · {darkPool.length} 支 · 港股 16:15–18:30 交易
-            </span>
+            <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">DARK POOL · 16:15–18:30</span>
           </div>
         </div>
         {darkPool.length === 0 ? (
-          <EmptyState
-            title="暂无暗盘数据"
-            hint="点「🌙 抓暗盘」拉富途+AAStocks 数据；今晚有暗盘的话推荐 17:00 后再抓（数据更全）。也可手工粘贴。"
-          />
+          <EmptyState title="暂无暗盘数据" hint="点「🌙 抓暗盘」拉富途+AAStocks；今晚有暗盘的话推荐 17:00 后再抓。" />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {darkPool.map((d) => {
@@ -351,9 +427,7 @@ export default function CalendarTab() {
                     <Tag variant={up ? 'accent' : 'success'}>{up ? '溢' : '破'}</Tag>
                   </div>
                   <div className="text-xs font-mono text-ink-mute mb-3">{d.code}</div>
-                  <div className={`num display text-3xl ${up ? 'text-accent' : 'text-accent-2'}`}>
-                    HK$ {d.darkPrice.toFixed(2)}
-                  </div>
+                  <div className={`num display text-3xl ${up ? 'text-accent' : 'text-accent-2'}`}>HK$ {d.darkPrice.toFixed(2)}</div>
                   {d.issuePrice !== undefined && (
                     <div className={`text-sm font-mono mt-1 ${up ? 'text-accent' : 'text-accent-2'}`}>
                       <InfoTip
@@ -369,9 +443,7 @@ export default function CalendarTab() {
                       </InfoTip>
                     </div>
                   )}
-                  <div className="text-[10px] text-ink-mute mt-2">
-                    {new Date(d.fetchedAt).toLocaleTimeString()} · {d.source.replace('-dark', '')}
-                  </div>
+                  <div className="text-[10px] text-ink-mute mt-2">{new Date(d.fetchedAt).toLocaleTimeString()} · {d.source.replace('-dark', '')}</div>
                 </div>
               )
             })}
@@ -379,14 +451,27 @@ export default function CalendarTab() {
         )}
       </section>
 
-      {/* 持仓盘中行情 */}
+      {/* ③ 待上市 */}
+      {grouped.upcoming.length > 0 && (
+        <section>
+          <div className="border-b border-ink pb-3 mb-6 flex items-baseline justify-between">
+            <h3 className="font-serif text-2xl">待上市 · {grouped.upcoming.length}</h3>
+            <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">UPCOMING LISTINGS</span>
+          </div>
+          <div className="space-y-2">
+            {grouped.upcoming.map((e, i) => renderRow(e, i))}
+          </div>
+        </section>
+      )}
+
+      {/* ④ 持仓盘中行情 */}
       <section>
         <div className="border-b border-ink pb-3 mb-6 flex items-baseline justify-between">
           <h3 className="font-serif text-2xl">持仓盘中行情</h3>
           <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">LIVE QUOTES</span>
         </div>
         {liveListings.length === 0 ? (
-          <EmptyState title="暂无行情数据" hint="点击右上「↻ 港股行情」拉取已申购/已上市标的（直连腾讯，无需代理）。" />
+          <EmptyState title="暂无行情数据" hint="点击「↻ 港股行情」拉取已申购/已上市标的（直连腾讯）。" />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {liveListings.map((ipo) => {
@@ -399,9 +484,7 @@ export default function CalendarTab() {
                     <Tag variant={up ? 'accent' : 'success'}>{up ? '涨' : '跌'}</Tag>
                   </div>
                   <div className="text-xs font-mono text-ink-mute mb-3">{ipo.code}</div>
-                  <div className={`num display text-3xl ${up ? 'text-accent' : 'text-accent-2'}`}>
-                    HK$ {q.price.toFixed(2)}
-                  </div>
+                  <div className={`num display text-3xl ${up ? 'text-accent' : 'text-accent-2'}`}>HK$ {q.price.toFixed(2)}</div>
                   <div className={`text-sm font-mono mt-1 ${up ? 'text-accent' : 'text-accent-2'}`}>
                     <InfoTip
                       title="对发行价的相对涨幅"
@@ -415,9 +498,7 @@ export default function CalendarTab() {
                       vs 发行价 {Pct(((q.price - ipo.priceHigh) / ipo.priceHigh) * 100)}
                     </InfoTip>
                   </div>
-                  <div className="text-[10px] text-ink-mute mt-2">
-                    {new Date(q.fetchedAt).toLocaleTimeString()} · 日内 {Pct(q.changePct)}
-                  </div>
+                  <div className="text-[10px] text-ink-mute mt-2">{new Date(q.fetchedAt).toLocaleTimeString()} · 日内 {Pct(q.changePct)}</div>
                 </div>
               )
             })}
@@ -425,81 +506,26 @@ export default function CalendarTab() {
         )}
       </section>
 
-      {/* 新股清单 */}
-      <section>
-        <div className="border-b border-ink pb-3 mb-6 flex items-baseline justify-between">
-          <h3 className="font-serif text-2xl">即将上市 / 招股中</h3>
-          <div className="flex items-center gap-3">
-            {isAdmin && calendar.length > 0 && (
-              <button onClick={importAll} className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent">
-                一键全部导入 →
-              </button>
-            )}
-            <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">UPCOMING IPO · {calendar.length}</span>
+      {/* ⑤ 已上市（折叠展示） */}
+      {grouped.listed.length > 0 && (
+        <section>
+          <div className="border-b border-rule pb-3 mb-6 flex items-baseline justify-between">
+            <h3 className="font-serif text-2xl text-ink-mute">已上市 · {grouped.listed.length}</h3>
+            <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">RECENT LISTINGS</span>
           </div>
-        </div>
-        {calendar.length === 0 ? (
-          <EmptyState title="尚未抓取" hint='点上方「↻ 抓新股日历」或「示例日历」。' />
-        ) : (
           <div className="space-y-2">
-            {calendar.map((e, i) => (
-              <article key={`${e.code ?? e.name}-${i}`} className="grid grid-cols-12 gap-3 items-center border border-rule p-3 bg-paper">
-                <div className="col-span-1 text-center font-serif text-2xl text-ink-mute">{String(i + 1).padStart(2, '0')}</div>
-                <div className="col-span-3">
-                  <div className="font-serif text-lg">{e.name}</div>
-                  <div className="text-xs font-mono text-ink-mute">{e.code ?? '—'}</div>
-                </div>
-                <div className="col-span-2">
-                  <div className="text-[10px] uppercase tracking-widest text-ink-mute">招股价</div>
-                  <div className="num text-sm">{e.priceLow && e.priceHigh ? `HK$ ${e.priceLow}–${e.priceHigh}` : '—'}</div>
-                  {e.lotSize && <div className="text-[10px] text-ink-soft">每手 {e.lotSize}</div>}
-                </div>
-                <div className="col-span-2">
-                  <div className="text-[10px] uppercase tracking-widest text-ink-mute">上市日期</div>
-                  <div className="num text-sm">{e.listingDate ?? '—'}</div>
-                  {e.subscriptionEnd && <div className="text-[10px] text-ink-soft">截止 {e.subscriptionEnd}</div>}
-                </div>
-                <div className="col-span-3 text-xs text-ink-mute font-mono italic truncate" title={e.rawSnippet}>
-                  {e.industry ?? e.rawSnippet}
-                </div>
-                <div className="col-span-1 text-right">
-                  {isAdmin && (
-                    <button onClick={() => importEntry(e)} className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent">
-                      导入 →
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))}
+            {grouped.listed.slice(0, 8).map((e, i) => renderRow(e, i, { dim: true }))}
           </div>
-        )}
-      </section>
-
-      {/* 部署代理指南 */}
-      {isAdmin && (
-        <section className="border-2 border-dashed border-rule p-5 bg-paper-2/30">
-          <h3 className="font-serif text-2xl mb-3">⚡ 想要 100% 稳定抓取？5 行 Cloudflare Worker</h3>
-          <p className="text-sm text-ink-soft mb-3">
-            公开 CORS 代理经常被限流。30 秒在 <span className="font-mono">workers.cloudflare.com</span> 部署一个永久免费的代理：
-          </p>
-          <pre className="font-mono text-xs bg-paper-2 border border-rule p-3 overflow-x-auto whitespace-pre-wrap">
-{`// Cloudflare Worker — 简易 CORS 代理
-export default {
-  async fetch(req) {
-    const url = new URL(req.url).searchParams.get('url')
-    if (!url) return new Response('?url=', { status: 400 })
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-    const t = await r.text()
-    return new Response(t, {
-      headers: { 'access-control-allow-origin': '*', 'content-type': r.headers.get('content-type') ?? 'text/plain' },
-    })
-  },
-}`}
-          </pre>
-          <p className="text-sm text-ink-soft mt-3">
-            部署后，把代理地址 <span className="font-mono">https://你的子域名.workers.dev/?url=</span> 填到上方「自定义代理」即可。
-          </p>
         </section>
+      )}
+
+      {/* 一键导入全部 */}
+      {isAdmin && calendar.length > 0 && (
+        <div className="flex justify-end">
+          <button onClick={importAll} className="text-xs uppercase tracking-widest underline underline-offset-4 hover:text-accent">
+            一键全部导入到评估台 ({calendar.length}) →
+          </button>
+        </div>
       )}
     </div>
   )
