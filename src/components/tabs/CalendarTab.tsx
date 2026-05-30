@@ -208,17 +208,19 @@ export default function CalendarTab({ onJumpEval }: Props) {
   const liveListings = ipos.filter((i) => i.liveQuote)
   const fmtTime = (t?: number | null) => t ? new Date(t).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' }) : '未'
 
-  // 招股中 / 待上市 / 已上市 分组
+  // 招股中 / 待上市 / 已上市 分组：用 today 实时推断，不信任 e.status（可能是缓存的旧值）
   const today = new Date().toISOString().slice(0, 10)
   const inferStatus = (e: IpoCalendarEntry): '招股中' | '待上市' | '已上市' | '未知' => {
-    if (e.status) return e.status as any
+    // 1) 已上市：listingDate <= today
+    if (e.listingDate && today > e.listingDate) return '已上市'
+    // 2) 招股中：今天落在 [subscriptionStart, subscriptionEnd] 区间
     if (e.subscriptionStart && e.subscriptionEnd) {
       if (today >= e.subscriptionStart && today <= e.subscriptionEnd) return '招股中'
     }
-    if (e.listingDate) {
-      if (today < e.listingDate) return '待上市'
-      if (today > e.listingDate) return '已上市'
-    }
+    // 3) 待上市：还没到上市日，但也不在申购窗口内（或没有申购窗口信息）
+    if (e.listingDate && today <= e.listingDate) return '待上市'
+    // 4) 实在没日期就 fallback 到原始 status
+    if (e.status) return e.status as any
     return '未知'
   }
   const grouped = useMemo(() => {
