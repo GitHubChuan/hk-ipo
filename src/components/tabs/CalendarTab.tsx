@@ -16,7 +16,6 @@ import {
   Tag,
   PrimaryButton,
   GhostButton,
-  Field,
   TextInput,
   EmptyState,
   Pct,
@@ -222,21 +221,31 @@ export default function CalendarTab({ onJumpEval }: Props) {
   const fmtTime = (t?: number | null) => t ? new Date(t).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' }) : '未'
 
   // 招股中 / 待上市 / 已上市 分组
-  // 优先级：① today>listingDate → 已上市（铁律）；② e.status（i668 手工维护，准）；③ 日期窗口推断
+  // 优先级：① today>listingDate → 已上市（铁律）；② e.status（i668 手工维护，准）；③ 距上市日的相对天数推断
   const today = new Date().toISOString().slice(0, 10)
+  const daysBetween = (d1: string, d2: string) => {
+    const ms = new Date(d2).getTime() - new Date(d1).getTime()
+    return Math.round(ms / (24 * 3600 * 1000))
+  }
   const inferStatus = (e: IpoCalendarEntry): '招股中' | '待上市' | '已上市' | '未知' => {
-    // ① 铁律：今天已经过了上市日 → 已上市，覆盖一切
+    // ① 铁律：今天已经过了上市日 → 已上市
     if (e.listingDate && today > e.listingDate) return '已上市'
-    // ② 信任 i668/sample 显式给的 status（这是手工维护的准确值）
+    // ② 信任 i668 给的 status（人工维护，最准）
     if (e.status === '招股中' || e.status === '待上市' || e.status === '已上市') {
       return e.status
     }
-    // ③ 没 status 字段时，按申购窗口推断
+    // ③ 显式申购窗口
     if (e.subscriptionStart && e.subscriptionEnd) {
       if (today >= e.subscriptionStart && today <= e.subscriptionEnd) return '招股中'
     }
-    // ④ 只有上市日 → 默认待上市
-    if (e.listingDate && today <= e.listingDate) return '待上市'
+    // ④ 启发式：港股招股截止 ≈ 上市日前 4 个自然日（含孖展尾盘）
+    //    距上市日 > 4 天 → 仍在「招股中」(覆盖到富途/老虎孖展窗口)
+    //    距上市日 ≤ 4 天 → 「待上市」(招股已截止，等公布)
+    if (e.listingDate) {
+      const diff = daysBetween(today, e.listingDate)
+      if (diff > 4) return '招股中'
+      return '待上市'
+    }
     return '未知'
   }
   const grouped = useMemo(() => {
@@ -329,33 +338,64 @@ export default function CalendarTab({ onJumpEval }: Props) {
             </label>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
-          <div className="md:col-span-5">
-            <Field label="自定义代理（可选，留空自动尝试公开代理）" hint="部署 Cloudflare Worker 最稳；URL 末尾 ? 或 / 自动适配">
-              <TextInput
-                value={config.corsProxy}
-                onChange={(e) => updateConfig({ corsProxy: e.target.value })}
-                disabled={!isAdmin}
-                placeholder="留空自动 / 或填 https://your-worker.workers.dev/?url="
-              />
-            </Field>
-          </div>
-          <div className="md:col-span-7 flex flex-wrap gap-2">
-            <PrimaryButton onClick={() => syncCalendar()} disabled={loading}>
-              {loading ? '抓取中…' : '↻ 抓新股日历'}
-            </PrimaryButton>
-            <PrimaryButton onClick={() => syncDark()} disabled={darkLoading} className="bg-accent">
-              {darkLoading ? '抓暗盘中…' : '🌙 抓暗盘'}
-            </PrimaryButton>
-            <GhostButton onClick={refreshQuotes} disabled={refreshingQuotes}>
-              {refreshingQuotes ? '行情中…' : '↻ 港股行情'}
-            </GhostButton>
-            <GhostButton onClick={() => setShowPaste((v) => !v)}>📋 粘贴日历</GhostButton>
-            <GhostButton onClick={() => setShowDarkPaste((v) => !v)}>📋 粘贴暗盘</GhostButton>
-            <GhostButton onClick={loadSample}>示例日历</GhostButton>
-            <GhostButton onClick={loadDarkSample}>示例暗盘</GhostButton>
-          </div>
+
+        {/* 操作按钮区 */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <PrimaryButton onClick={() => syncCalendar()} disabled={loading}>
+            {loading ? '抓取中…' : '↻ 抓新股日历'}
+          </PrimaryButton>
+          <PrimaryButton onClick={() => syncDark()} disabled={darkLoading} className="bg-accent">
+            {darkLoading ? '抓暗盘中…' : '🌙 抓暗盘'}
+          </PrimaryButton>
+          <GhostButton onClick={refreshQuotes} disabled={refreshingQuotes}>
+            {refreshingQuotes ? '行情中…' : '↻ 港股行情'}
+          </GhostButton>
+          <GhostButton onClick={() => setShowPaste((v) => !v)}>📋 粘贴日历</GhostButton>
+          <GhostButton onClick={() => setShowDarkPaste((v) => !v)}>📋 粘贴暗盘</GhostButton>
+          <GhostButton onClick={loadSample}>示例日历</GhostButton>
+          <GhostButton onClick={loadDarkSample}>示例暗盘</GhostButton>
         </div>
+
+        {/* 自定义代理 — 折叠面板 */}
+        <details className="border-t border-rule pt-3 -mx-1 px-1">
+          <summary className="cursor-pointer text-[10px] tracking-[0.3em] uppercase text-ink-mute hover:text-accent select-none flex items-center gap-2">
+            <span>⚙ 高级：自定义 CORS 代理</span>
+            {config.corsProxy && <Tag variant="success">已配置</Tag>}
+            <span className="ml-auto text-ink-mute/60 italic normal-case tracking-normal">默认会自动尝试公开代理</span>
+          </summary>
+          <div className="mt-3 pl-2 border-l-2 border-accent/30 space-y-3">
+            <div className="text-xs text-ink-soft leading-relaxed">
+              港股数据源（i668/雪球/AAStocks）有跨域限制，默认走 4 个公开代理（allorigins / codetabs / thingproxy / corsproxy）。
+              <strong className="text-ink">推荐自部署 Cloudflare Worker 最稳</strong>，可绕过公开代理的限流和不稳定。
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+              <div className="md:col-span-2">
+                <TextInput
+                  value={config.corsProxy}
+                  onChange={(e) => updateConfig({ corsProxy: e.target.value })}
+                  disabled={!isAdmin}
+                  placeholder="https://your-worker.workers.dev/?url="
+                />
+                <div className="text-[10px] text-ink-mute mt-1.5">
+                  URL 末尾 <code className="bg-paper-2 px-1">?url=</code> 或 <code className="bg-paper-2 px-1">/</code> 自动适配
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {isAdmin && config.corsProxy && (
+                  <GhostButton onClick={() => updateConfig({ corsProxy: '' })}>清空</GhostButton>
+                )}
+                <a
+                  href="https://developers.cloudflare.com/workers/get-started/guide/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent self-center"
+                >
+                  Worker 部署指南 →
+                </a>
+              </div>
+            </div>
+          </div>
+        </details>
 
         {showPaste && (
           <div className="mt-5 border border-rule p-4 bg-paper">

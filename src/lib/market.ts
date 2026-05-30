@@ -9,7 +9,7 @@ import type { HistoricalIpo } from './types'
 
 // ────────────────────────── 通用工具 ──────────────────────────
 
-const CACHE_KEY_PREFIX = 'hk_ipo_market_cache_v3::'
+const CACHE_KEY_PREFIX = 'hk_ipo_market_cache_v4::'
 const CACHE_DEFAULT_TTL = 60 * 60 * 1000 // 1h
 
 export function readCache<T>(key: string, ttl = CACHE_DEFAULT_TTL): T | null {
@@ -143,6 +143,61 @@ export type IpoCalendarEntry = {
   rawSnippet?: string
 }
 
+async function fromI668(): Promise<IpoCalendarEntry[]> {
+  // i668.vip/stocks 是手工维护的权威源，有 status 列（招股中/待上市/已上市）
+  const target = 'https://www.i668.vip/stocks'
+  const html = await fetchWithFallback(target, 500)
+  if (!html) return []
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const rows = doc.querySelectorAll('table tr')
+    const out: IpoCalendarEntry[] = []
+    rows.forEach((tr) => {
+      const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent ?? '').trim())
+      if (cells.length < 5) return
+      // i668 例：02290 龙丰集团 | 机制B | 招股中 | 5.180-6.380 | 500 | 3,223 | 25,000 | 2026-06-05
+      const codeNameMatch = cells[0].match(/(\d{4,5})\s+(.+)/)
+      if (!codeNameMatch) return
+      const code = codeNameMatch[1].padStart(5, '0') + '.HK'
+      const name = codeNameMatch[2].trim()
+      const mechCell = cells[1] || ''
+      const statusCell = cells[2] || ''
+      const priceCell = cells[3] || ''
+      const lotSize = parseInt(cells[4]?.replace(/[,\s]/g, '') || '0', 10) || undefined
+      const entryFee = parseInt(cells[5]?.replace(/[,\s]/g, '') || '0', 10) || undefined
+      const issueLots = parseInt(cells[6]?.replace(/[,\s]/g, '') || '0', 10) || undefined
+      const listingDate = cells[7]?.match(/\d{4}-\d{2}-\d{2}/)?.[0]
+
+      const priceMatch = priceCell.match(/(\d+\.?\d*)\s*[-–—]?\s*(\d+\.?\d*)?/)
+      const priceLow = priceMatch?.[1] ? parseFloat(priceMatch[1]) : undefined
+      const priceHigh = priceMatch?.[2] ? parseFloat(priceMatch[2]) : priceLow
+
+      const mechanism: any = mechCell.includes('18C') ? '18C' :
+        mechCell.includes('SPAC') ? 'SPAC' :
+        mechCell.includes('GEM') ? 'GEM' :
+        mechCell.includes('B') ? 'B' :
+        mechCell.includes('A') ? 'A' : undefined
+
+      const status: any = statusCell.includes('招股中') ? '招股中' :
+        statusCell.includes('待上市') ? '待上市' :
+        statusCell.includes('已上市') ? '已上市' :
+        statusCell.includes('即将') ? '即将招股' : undefined
+
+      out.push({
+        code, name,
+        priceLow, priceHigh, lotSize,
+        listingDate,
+        mechanism,
+        issueLots,
+        entryFeeMid: entryFee,
+        status,
+        source: 'i668',
+      })
+    })
+    return out
+  } catch (e) { console.warn('[i668 parse]', e); return [] }
+}
+
 async function fromXueqiu(): Promise<IpoCalendarEntry[]> {
   const url = 'https://stock.xueqiu.com/v5/stock/preipo/hk/list.json?type=4&order_by=onl_subbeg_date&order=desc&page=1&size=30'
   const text = await fetchWithFallback(url)
@@ -200,6 +255,13 @@ export async function fetchIpoCalendar(opts?: { useCache?: boolean }): Promise<{
   if (opts?.useCache !== false) {
     const cached = readCache<{ list: IpoCalendarEntry[]; source: string; fetchedAt: number }>('ipo_calendar')
     if (cached && cached.list.length) return { ...cached }
+  }
+  // 优先级：i668（有 status 手工维护权威）→ 雪球 → AAStocks
+  const i668 = await fromI668()
+  if (i668.length) {
+    const r = { list: dedup(i668), source: 'i668.vip', fetchedAt: Date.now() }
+    writeCache('ipo_calendar', r)
+    return r
   }
   const xq = await fromXueqiu()
   if (xq.length) {
