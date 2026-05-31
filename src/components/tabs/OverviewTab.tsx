@@ -107,14 +107,14 @@ export default function OverviewTab({ onJumpTab }: { onJumpTab: (id: string) => 
           index="II"
           en="Firepower Breakdown"
           zh={lev.enabled ? `资金口径 · ${lev.leverage}× 杠杆模式` : '资金口径 · 现金模式'}
-          desc={lev.enabled ? '把"团队总资金"拆成 5 档：自有 / 可融资 / 总火力 / 已冻结 / 剩余可用' : '杠杆已在 §X 关闭，仅显示现金口径'}
+          desc={lev.enabled ? '把“团队总资金”拆成 5 档：自有 / 可融资 / 总火力 / 已冻结 / 剩余可用' : '杠杆已在 §XI 关闭，仅显示现金口径'}
         />
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="border-2 border-ink p-4 bg-paper">
             <div className="text-[10px] uppercase tracking-widest text-ink-mute">
               <InfoTip
                 title="自有本金"
-                formula="§X 设置里的「团队总资金」"
+                formula="§XI 设置里的「团队总资金」"
                 steps={[{ label: '合伙人合计', value: HKD(partners.reduce((a, p) => a + (p.capital ?? 0), 0)) }, { label: '团队池', value: HKD(ownCapital) }]}
               >
                 ① 自有本金

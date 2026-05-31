@@ -1,125 +1,29 @@
 import { useState } from 'react'
 import { useStore, useCurrentUser, useIsAdmin } from '@/lib/store'
-import { SectionTitle, Tag, PrimaryButton, GhostButton, Field, TextInput, Select, EmptyState } from '@/components/shared/Editorial'
-
-const colorPalette = ['#1E40AF', '#B83A2B', '#1F4D3F', '#C49A4A', '#7C3AED', '#0F766E']
+import { SectionTitle, Tag, PrimaryButton, GhostButton, Field, TextInput, Select } from '@/components/shared/Editorial'
 
 export default function SettingsTab() {
-  const { partners, addPartner, updatePartner, removePartner, config, updateConfig, resetAll, changeMyPassword } = useStore()
+  const { partners, config, updateConfig, resetAll, changeMyPassword } = useStore()
   const me = useCurrentUser()
   const isAdmin = useIsAdmin()
-  const [newPartner, setNewPartner] = useState({ name: '', capital: 0, shareRatio: 0.2 })
   const [oldPwd, setOldPwd] = useState('')
   const [newPwd, setNewPwd] = useState('')
 
-  const onAddPartner = () => {
-    if (!newPartner.name) return alert('请填写姓名')
-    addPartner({
-      name: newPartner.name,
-      capital: newPartner.capital,
-      shareRatio: newPartner.shareRatio,
-      color: colorPalette[partners.length % colorPalette.length],
-    })
-    setNewPartner({ name: '', capital: 0, shareRatio: 0.2 })
-  }
-
-  const totalRatio = partners.reduce((a, b) => a + b.shareRatio, 0)
-
   return (
     <div className="space-y-12">
-      <SectionTitle index="X" en="Configuration" zh="设置" desc="管理合伙人花名册、资金池参数与个人密码。" />
+      <SectionTitle index="XI" en="Configuration" zh="设置" desc="管理资金池参数与个人密码（合伙人档案请到《§IX 合伙人账户》维护）。" />
 
-      {/* 合伙人花名册 — 仅管理员 */}
+      {/* 合伙人花名册已迁移到 §IX「合伙人账户」页面，这里只保留快捷指引 */}
       {isAdmin && (
         <section>
           <div className="border-b border-ink pb-3 mb-6 flex items-baseline justify-between">
-            <h3 className="font-serif text-2xl">合伙人花名册 · {partners.length} 人</h3>
-            <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">PARTNERS' ROSTER</span>
+            <h3 className="font-serif text-2xl">合伙人账户</h3>
+            <span className="text-[10px] tracking-[0.3em] uppercase text-ink-mute">MOVED → §IX</span>
           </div>
-
-          {partners.length === 0 ? (
-            <EmptyState title="还没有合伙人" />
-          ) : (
-            <div className="space-y-3 mb-6">
-              {partners.map((p) => (
-                <article key={p.id} className="grid grid-cols-12 gap-3 items-center border border-rule p-4">
-                  <div className="col-span-1">
-                    <input
-                      type="color"
-                      value={p.color}
-                      onChange={(e) => updatePartner(p.id, { color: e.target.value })}
-                      className="w-10 h-10 border border-rule cursor-pointer"
-                    />
-                  </div>
-                  <div className="col-span-3">
-                    <input
-                      value={p.name}
-                      onChange={(e) => updatePartner(p.id, { name: e.target.value })}
-                      className="w-full bg-transparent border-b border-ink/40 font-serif text-lg py-1"
-                    />
-                    {config.mainPartnerId === p.id && <Tag variant="accent">主理人 / 兜底</Tag>}
-                  </div>
-                  <div className="col-span-3">
-                    <Field label="投入本金 (HKD)">
-                      <input
-                        type="number"
-                        value={p.capital}
-                        onChange={(e) => updatePartner(p.id, { capital: +e.target.value })}
-                        className="w-full bg-transparent border-b border-ink/40 font-mono py-1"
-                      />
-                    </Field>
-                  </div>
-                  <div className="col-span-2">
-                    <Field label="分润比例">
-                      <input
-                        type="number"
-                        step={0.01}
-                        max={1}
-                        min={0}
-                        value={p.shareRatio}
-                        onChange={(e) => updatePartner(p.id, { shareRatio: +e.target.value })}
-                        className="w-full bg-transparent border-b border-ink/40 font-mono py-1"
-                      />
-                    </Field>
-                  </div>
-                  <div className="col-span-2 text-right space-y-1">
-                    <button onClick={() => updateConfig({ mainPartnerId: p.id })} className="text-[10px] uppercase tracking-widest underline underline-offset-4 hover:text-accent block ml-auto">
-                      设为主理人
-                    </button>
-                    <button onClick={() => { if (confirm('确定移除此合伙人？')) removePartner(p.id) }} className="text-[10px] uppercase tracking-widest text-ink-mute hover:text-accent block ml-auto">
-                      移除
-                    </button>
-                  </div>
-                  <div className="col-span-1 text-right">
-                    <span className="text-xs text-ink-mute font-mono">{(p.shareRatio * 100).toFixed(0)}%</span>
-                  </div>
-                </article>
-              ))}
-              <div className="text-xs text-ink-mute italic mt-2">
-                当前分润比例总和：{(totalRatio * 100).toFixed(0)}%（系统会在结算时自动归一化为 100%）
-              </div>
-            </div>
-          )}
-
-          <div className="border-2 border-dashed border-rule p-5 bg-paper-2/30">
-            <h4 className="font-serif text-xl mb-4">+ 新增合伙人（不绑定账号）</h4>
-            <div className="grid grid-cols-4 gap-4">
-              <Field label="姓名">
-                <TextInput value={newPartner.name} onChange={(e) => setNewPartner({ ...newPartner, name: e.target.value })} />
-              </Field>
-              <Field label="本金 (HKD)">
-                <TextInput type="number" value={newPartner.capital} onChange={(e) => setNewPartner({ ...newPartner, capital: +e.target.value })} />
-              </Field>
-              <Field label="初始分润比例">
-                <TextInput type="number" step={0.01} value={newPartner.shareRatio} onChange={(e) => setNewPartner({ ...newPartner, shareRatio: +e.target.value })} />
-              </Field>
-              <div className="flex items-end">
-                <PrimaryButton onClick={onAddPartner}>录入</PrimaryButton>
-              </div>
-            </div>
-            <p className="text-[11px] text-ink-mute mt-3 italic">
-              提示：如果要给合伙人开通登录账号，请到「§VIII 用户管理」中创建。
-            </p>
+          <div className="border border-rule bg-paper-2/40 p-5 text-sm text-ink-soft leading-relaxed">
+            合伙人花名册（姓名、本金、分润比例、联系方式、券商账号等）已统一搬迁至
+            <strong> §IX 合伙人账户 </strong>页面。
+            主理人在该页可编辑全部账户；合伙人登录后只能维护自己的档案。
           </div>
         </section>
       )}

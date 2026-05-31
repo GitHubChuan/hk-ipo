@@ -309,6 +309,39 @@ export function useLeverageParams() {
   }
 }
 
+// ——— 合伙人账户：权限辅助 ———
+
+/** 当前登录用户绑定的 Partner（partner 角色用户的"我的账户"） */
+export function useMyPartner() {
+  const me = useCurrentUser()
+  return useStore((s) =>
+    me ? s.partners.find((p) => p.id === me.partnerId || p.ownerUserId === me.id) : undefined,
+  )
+}
+
+/** 可编辑性：admin 全部可编辑；partner 只能编辑自己绑定的 partner */
+export function canEditPartner(meRole: 'admin' | 'partner' | undefined, mePartnerId: string | undefined, partnerId: string): boolean {
+  if (meRole === 'admin') return true
+  if (meRole === 'partner') return !!mePartnerId && mePartnerId === partnerId
+  return false
+}
+
+/** 字段级权限：phone/email/note/color/riskPreference 公开可见；brokerAccount/bankAccount 仅本人+admin 可见 */
+export function canViewPartnerSensitive(meRole: 'admin' | 'partner' | undefined, mePartnerId: string | undefined, partnerId: string): boolean {
+  if (meRole === 'admin') return true
+  if (meRole === 'partner') return !!mePartnerId && mePartnerId === partnerId
+  return false
+}
+
+/** 合伙人可见列表：admin 看全部；partner 只看自己 */
+export function useVisiblePartners() {
+  const me = useCurrentUser()
+  const all = useStore((s) => s.partners)
+  if (!me) return []
+  if (me.role === 'admin') return all
+  return all.filter((p) => p.id === me.partnerId || p.ownerUserId === me.id)
+}
+
 // 按当前用户角色过滤数据视图
 export function useScopedData() {
   const me = useCurrentUser()

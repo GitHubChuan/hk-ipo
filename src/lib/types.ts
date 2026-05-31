@@ -23,6 +23,12 @@ export type Partner = {
   note?: string
   // 数据归属：哪些 user 创建的（用于 partner 视图过滤）
   ownerUserId?: string
+  // —— 账户维护补充字段（合伙人可自助编辑） ——
+  phone?: string        // 联系方式
+  email?: string        // 邮箱
+  brokerAccount?: string // 券商账号（不会泄露给他人，仅本人和主理人可见）
+  bankAccount?: string  // 收款账号（仅本人和主理人可见）
+  riskPreference?: 'aggressive' | 'balanced' | 'conservative' // 风险偏好
 }
 
 export type IpoStatus =

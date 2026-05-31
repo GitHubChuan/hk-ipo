@@ -8,21 +8,23 @@ import SettlementTab from '@/components/tabs/SettlementTab'
 import ReviewTab from '@/components/tabs/ReviewTab'
 import SettingsTab from '@/components/tabs/SettingsTab'
 import UsersTab from '@/components/tabs/UsersTab'
+import PartnersTab from '@/components/tabs/PartnersTab'
 import CalendarTab from '@/components/tabs/CalendarTab'
 import ProfitBacktestTab from '@/components/tabs/ProfitBacktestTab'
 import type { IpoCalendarEntry } from '@/lib/market'
 
 const ALL_TABS = [
-  { id: 'overview',   label: '总览',         en: 'Overview',    no: 'I',    adminOnly: false },
-  { id: 'calendar',   label: '新股日历',     en: 'Calendar',    no: 'II',   adminOnly: false },
-  { id: 'eval',       label: '标的评估',     en: 'Evaluation',  no: 'III',  adminOnly: false },
-  { id: 'profit',     label: '收益回测',     en: 'Backtest',    no: 'IV',   adminOnly: false },
-  { id: 'alloc',      label: '额度分配',     en: 'Allocation',  no: 'V',    adminOnly: false },
-  { id: 'holdings',   label: '持仓申购',     en: 'Holdings',    no: 'VI',   adminOnly: false },
-  { id: 'settle',     label: '卖出分润',     en: 'Settlement',  no: 'VII',  adminOnly: false },
-  { id: 'review',     label: '历史复盘',     en: 'Review',      no: 'VIII', adminOnly: false },
-  { id: 'users',      label: '用户管理',     en: 'Users',       no: 'IX',   adminOnly: true  },
-  { id: 'settings',   label: '设置',         en: 'Settings',    no: 'X',    adminOnly: false },
+  { id: 'overview',   label: '总览',         en: 'Overview',    no: 'I',     adminOnly: false },
+  { id: 'calendar',   label: '新股日历',     en: 'Calendar',    no: 'II',    adminOnly: false },
+  { id: 'eval',       label: '标的评估',     en: 'Evaluation',  no: 'III',   adminOnly: false },
+  { id: 'profit',     label: '收益回测',     en: 'Backtest',    no: 'IV',    adminOnly: false },
+  { id: 'alloc',      label: '额度分配',     en: 'Allocation',  no: 'V',     adminOnly: false },
+  { id: 'holdings',   label: '持仓申购',     en: 'Holdings',    no: 'VI',    adminOnly: false },
+  { id: 'settle',     label: '卖出分润',     en: 'Settlement',  no: 'VII',   adminOnly: false },
+  { id: 'review',     label: '历史复盘',     en: 'Review',      no: 'VIII',  adminOnly: false },
+  { id: 'partners',   label: '合伙人账户',   en: 'Partners',    no: 'IX',    adminOnly: false },
+  { id: 'users',      label: '用户管理',     en: 'Users',       no: 'X',     adminOnly: true  },
+  { id: 'settings',   label: '设置',         en: 'Settings',    no: 'XI',    adminOnly: false },
 ] as const
 
 type TabId = (typeof ALL_TABS)[number]['id']
@@ -107,6 +109,7 @@ export default function DashboardPage() {
         {tab === 'holdings' && <HoldingsTab />}
         {tab === 'settle' && <SettlementTab />}
         {tab === 'review' && <ReviewTab />}
+        {tab === 'partners' && <PartnersTab />}
         {tab === 'users' && isAdmin && <UsersTab />}
         {tab === 'settings' && <SettingsTab />}
       </main>
