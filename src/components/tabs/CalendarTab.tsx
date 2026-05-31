@@ -251,12 +251,13 @@ export default function CalendarTab({ onJumpEval }: Props) {
     if (e.subscriptionStart && e.subscriptionEnd) {
       if (today >= e.subscriptionStart && today <= e.subscriptionEnd) return '招股中'
     }
-    // ④ 启发式：港股招股截止 ≈ 上市日前 4 个自然日（含孖展尾盘）
-    //    距上市日 > 4 天 → 仍在「招股中」(覆盖到富途/老虎孖展窗口)
-    //    距上市日 ≤ 4 天 → 「待上市」(招股已截止，等公布)
+    // ④ 启发式：港股 T-1 前富途/老虎/辉立等都仍可孖展申购
+    //    distToListing >= 1 天 → 「招股中」（用户体感：富途 app 还在招股）
+    //    distToListing == 0 天 → 「待上市」（明天就上市，已停止申购）
+    //    today > listing → 「已上市」（上面已处理）
     if (e.listingDate) {
       const diff = daysBetween(today, e.listingDate)
-      if (diff > 4) return '招股中'
+      if (diff >= 1) return '招股中'
       return '待上市'
     }
     return '未知'
