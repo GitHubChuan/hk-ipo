@@ -232,23 +232,30 @@ async function fromAAStocks(): Promise<IpoCalendarEntry[]> {
     rows.forEach((tr) => {
       const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent ?? '').trim())
       if (cells.length < 4) return
-      const codeMatch = cells.join(' ').match(/\b(\d{4,5})\b/)
-      const dateMatch = cells.join(' ').match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
-      const priceMatch = cells.join(' ').match(/(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)/)
+      const joined = cells.join(' ')
+      const codeMatch = joined.match(/\b(\d{4,5})\b/)
+      const dateMatch = joined.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
+      const priceMatch = joined.match(/(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)/)
       const nameCell = cells.find((c) => /[\u4e00-\u9fa5]/.test(c) && c.length < 30) ?? cells[1]
       if (!nameCell || !codeMatch) return
       // 统一日期格式为 ISO 8601 YYYY-MM-DD
       const isoDate = dateMatch
         ? `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`
         : undefined
+      // 尝试抽 lot size（每手）：典型为 100/200/500/1000，且后面常带「股」字或紧跟数量列
+      const lotMatch = joined.match(/\b(50|100|200|250|500|1000|2000)\s*(?:股)?\b/)
+      // 尝试抽 issueLots（公开发售手数）：通常 5 位以上整数 + 千分位
+      const issueLotsMatch = joined.match(/(\d{1,3}(?:,\d{3}){1,2})\s*(?:手|lots)?/i)
       out.push({
         code: codeMatch[1].padStart(5, '0') + '.HK',
         name: nameCell.replace(/[\d\.\-\s]+$/g, '').trim(),
         priceLow: priceMatch ? parseFloat(priceMatch[1]) : undefined,
         priceHigh: priceMatch ? parseFloat(priceMatch[2]) : undefined,
+        lotSize: lotMatch ? parseInt(lotMatch[1], 10) : undefined,
+        issueLots: issueLotsMatch ? parseInt(issueLotsMatch[1].replace(/,/g, ''), 10) : undefined,
         listingDate: isoDate,
         source: 'aastocks',
-        rawSnippet: cells.join(' | ').slice(0, 160),
+        rawSnippet: joined.slice(0, 160),
       })
     })
     return out

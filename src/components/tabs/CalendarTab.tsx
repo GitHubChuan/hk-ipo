@@ -276,20 +276,50 @@ export default function CalendarTab({ onJumpEval }: Props) {
     return { subscribing, upcoming, listed }
   }, [calendar])
 
-  const renderRow = (e: IpoCalendarEntry, i: number, opts?: { dim?: boolean }) => {
+  // 招股截止日期推断：subscriptionEnd 优先，否则 listingDate - 4 天（港股 T-4 通常截止）
+  const inferSubEnd = (e: IpoCalendarEntry): { date: string; isApprox: boolean } | null => {
+    if (e.subscriptionEnd) return { date: e.subscriptionEnd, isApprox: false }
+    if (e.listingDate) {
+      const d = new Date(e.listingDate)
+      d.setDate(d.getDate() - 4)
+      return { date: d.toISOString().slice(0, 10), isApprox: true }
+    }
+    return null
+  }
+  // 倒计时：返回 (label, urgent)
+  const countdownTo = (date: string): { label: string; urgent: boolean } => {
+    const diff = daysBetween(today, date)
+    if (diff < 0) return { label: '已截止', urgent: false }
+    if (diff === 0) return { label: '今天截止', urgent: true }
+    if (diff === 1) return { label: '明天截止', urgent: true }
+    if (diff <= 2) return { label: `${diff} 天后截止`, urgent: true }
+    return { label: `${diff} 天后截止`, urgent: false }
+  }
+
+  const renderRow = (e: IpoCalendarEntry, i: number, opts?: { dim?: boolean; emphasis?: boolean }) => {
     const st = inferStatus(e)
     const stColor = st === '招股中' ? 'accent' : st === '待上市' ? 'warn' : 'mute'
     const lotsAmt = e.issueLots ? (e.issueLots >= 10000 ? `${(e.issueLots / 10000).toFixed(1)}万` : e.issueLots.toLocaleString()) : '—'
     const fundsAmt = e.issueAmount ? (e.issueAmount >= 10000 ? `${(e.issueAmount / 10000).toFixed(2)}亿` : `${e.issueAmount.toFixed(0)}万`) : '—'
+    const subEnd = inferSubEnd(e)
+    const cd = subEnd ? countdownTo(subEnd.date) : null
+    const priceRange = e.priceLow && e.priceHigh
+      ? (e.priceLow === e.priceHigh ? `HK$ ${e.priceHigh}` : `HK$ ${e.priceLow}–${e.priceHigh}`)
+      : '—'
     return (
       <article
         key={`${e.code ?? e.name}-${i}`}
-        className={`grid grid-cols-12 gap-3 items-center border p-3 transition-colors cursor-pointer ${opts?.dim ? 'border-rule bg-paper/40 opacity-70 hover:opacity-100' : 'border-ink bg-paper hover:bg-paper-2/60'}`}
+        className={`grid grid-cols-12 gap-3 items-center border p-3 transition-colors cursor-pointer ${opts?.dim ? 'border-rule bg-paper/40 opacity-70 hover:opacity-100' : 'border-ink bg-paper hover:bg-paper-2/60'} ${opts?.emphasis && cd?.urgent ? 'border-l-4 border-l-accent' : ''}`}
         onClick={() => handleEvaluate(e)}
         title="点击：导入并打开标的评估"
       >
         <div className="col-span-1 text-center">
           <Tag variant={stColor as any}>{st}</Tag>
+          {opts?.emphasis && cd && (
+            <div className={`mt-1 text-[10px] font-mono ${cd.urgent ? 'text-accent font-bold' : 'text-ink-mute'}`}>
+              {cd.label}
+            </div>
+          )}
         </div>
         <div className="col-span-3">
           <div className="font-serif text-lg leading-tight">{e.name}</div>
@@ -297,12 +327,19 @@ export default function CalendarTab({ onJumpEval }: Props) {
         </div>
         <div className="col-span-2">
           <div className="text-[10px] uppercase tracking-widest text-ink-mute">招股价 / 每手</div>
-          <div className="num text-sm">{e.priceLow && e.priceHigh ? (e.priceLow === e.priceHigh ? `HK$ ${e.priceHigh}` : `HK$ ${e.priceLow}–${e.priceHigh}`) : '—'}</div>
-          {e.lotSize && <div className="text-[10px] text-ink-soft">每手 {e.lotSize} 股 · 入场 {e.entryFeeMid ? HKD(e.entryFeeMid) : '—'}</div>}
+          <div className="num text-sm">{priceRange}</div>
+          <div className="text-[10px] text-ink-soft">
+            {e.lotSize ? `每手 ${e.lotSize} 股` : '每手 —'}
+            {' · '}
+            入场 {e.entryFeeMid ? HKD(e.entryFeeMid) : (e.priceHigh && e.lotSize ? HKD(Math.round(e.priceHigh * e.lotSize * 1.01)) + '*' : '—')}
+          </div>
         </div>
         <div className="col-span-2">
-          <div className="text-[10px] uppercase tracking-widest text-ink-mute">截止 / 上市</div>
-          <div className="num text-sm text-accent">{e.subscriptionEnd ?? '—'}</div>
+          <div className="text-[10px] uppercase tracking-widest text-ink-mute">招股截止 / 上市</div>
+          <div className="num text-sm text-accent">
+            {subEnd?.date ?? '—'}
+            {subEnd?.isApprox && <span className="ml-1 text-[9px] text-ink-mute" title="推算值（=上市日 -4 天）">≈</span>}
+          </div>
           <div className="text-[10px] text-ink-soft">上市 {e.listingDate ?? '—'}</div>
         </div>
         <div className="col-span-2">
@@ -471,7 +508,7 @@ export default function CalendarTab({ onJumpEval }: Props) {
           <EmptyState title="近期暂无招股中标的" hint='点上方「↻ 抓新股日历」或「示例日历」获取最新。' />
         ) : (
           <div className="space-y-2">
-            {grouped.subscribing.map((e, i) => renderRow(e, i))}
+            {grouped.subscribing.map((e, i) => renderRow(e, i, { emphasis: true }))}
           </div>
         )}
       </section>
