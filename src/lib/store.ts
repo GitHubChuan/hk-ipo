@@ -273,6 +273,7 @@ export const useStore = create<AppState & Actions>()(
         return persisted
       },
       partialize: (s) => ({
+        currentUserId: s.currentUserId, // ⭐ 修复：登录态需要持久化，否则刷新就退出
         users: s.users,
         partners: s.partners,
         ipos: s.ipos,

@@ -9,7 +9,7 @@ import type { HistoricalIpo } from './types'
 
 // ────────────────────────── 通用工具 ──────────────────────────
 
-const CACHE_KEY_PREFIX = 'hk_ipo_market_cache_v5::'
+const CACHE_KEY_PREFIX = 'hk_ipo_market_cache_v6::'
 const CACHE_DEFAULT_TTL = 60 * 60 * 1000 // 1h
 
 export function readCache<T>(key: string, ttl = CACHE_DEFAULT_TTL): T | null {
@@ -267,24 +267,64 @@ export async function fetchIpoCalendar(opts?: { useCache?: boolean }): Promise<{
     const cached = readCache<{ list: IpoCalendarEntry[]; source: string; fetchedAt: number }>('ipo_calendar')
     if (cached && cached.list.length) return { ...cached }
   }
-  // 优先级：i668（有 status 手工维护权威）→ 雪球 → AAStocks
+
+  // ⭐ 关键：拿到的远端数据，对相同 code 的标的，用 sample 的 status / lotSize / mechanism / listingDate 覆盖
+  // 因为远端（AAStocks）通常没有 status，且经常滞后；sample 是手工对照富途/i668 维护的最权威源
+  const sampleByCode = getSampleStatusMap()
+  const merge = (list: IpoCalendarEntry[]): IpoCalendarEntry[] => {
+    // 1. 用 sample 覆盖远端
+    const out = list.map((e) => {
+      if (!e.code) return e
+      const s = sampleByCode[e.code]
+      if (!s) return e
+      return {
+        ...e,
+        // sample 字段优先，远端 fallback
+        name: s.name || e.name,
+        priceLow: s.priceLow ?? e.priceLow,
+        priceHigh: s.priceHigh ?? e.priceHigh,
+        lotSize: s.lotSize ?? e.lotSize,
+        listingDate: s.listingDate ?? e.listingDate,
+        subscriptionEnd: s.subscriptionEnd ?? e.subscriptionEnd,
+        mechanism: s.mechanism ?? e.mechanism,
+        issueLots: s.issueLots ?? e.issueLots,
+        issueAmount: s.issueAmount ?? e.issueAmount,
+        entryFeeMid: s.entryFeeMid ?? e.entryFeeMid,
+        status: s.status,  // 一定用 sample 的 status（最准）
+      }
+    })
+    // 2. 把 sample 中远端没拉到的标的补进来（招股中容易被远端漏）
+    const remoteCodes = new Set(out.map((e) => e.code).filter(Boolean))
+    for (const [code, s] of Object.entries(sampleByCode)) {
+      if (!remoteCodes.has(code)) out.unshift(s)
+    }
+    return out
+  }
+
+  // 优先级：i668（有 status 手工维护权威）→ 雪球 → AAStocks → 全失败时直接用 sample
   const i668 = await fromI668()
   if (i668.length) {
-    const r = { list: dedup(i668), source: 'i668.vip', fetchedAt: Date.now() }
+    const r = { list: dedup(merge(i668)), source: 'i668.vip + 手工校对', fetchedAt: Date.now() }
     writeCache('ipo_calendar', r)
     return r
   }
   const xq = await fromXueqiu()
   if (xq.length) {
-    const r = { list: dedup(xq), source: '雪球 (snowball)', fetchedAt: Date.now() }
+    const r = { list: dedup(merge(xq)), source: '雪球 + 手工校对', fetchedAt: Date.now() }
     writeCache('ipo_calendar', r)
     return r
   }
   const aas = await fromAAStocks()
   if (aas.length) {
-    const r = { list: dedup(aas), source: 'AAStocks', fetchedAt: Date.now() }
+    const r = { list: dedup(merge(aas)), source: 'AAStocks + 手工校对', fetchedAt: Date.now() }
     writeCache('ipo_calendar', r)
     return r
+  }
+  // 全部代理都挂了 → 直接返回 sample（手工维护的权威源）
+  const fallback = sampleIpoCalendar()
+  if (fallback.length) {
+    const r = { list: fallback, source: '手工维护源（i668 + 富途 校对）', fetchedAt: Date.now() }
+    return { ...r, error: '远端代理均不可达，已加载手工维护数据。' }
   }
   const stale = readCache<{ list: IpoCalendarEntry[]; source: string; fetchedAt: number }>('ipo_calendar', 7 * 24 * 3600 * 1000)
   if (stale && stale.list.length) {
@@ -306,14 +346,32 @@ function dedup<T extends { code?: string; name: string }>(arr: T[]): T[] {
 // ────────────────────────── 示例 + 手工粘贴 ──────────────────────────
 
 export function sampleIpoCalendar(): IpoCalendarEntry[] {
-  // 数据源：i668.vip/stocks（按 i668 实时维护的 status 为准）
-  // status 由 i668 维护，CalendarTab.inferStatus 会用 today > listingDate 的硬规则兜底，自动把过期的强制为「已上市」
+  // 数据源：富途 + i668.vip/stocks（手工维护的权威源，每次部署前刷新）
+  // status 由 sample 维护，CalendarTab.inferStatus 第一条铁律会用 today > listingDate 自动覆盖过期为「已上市」
+  // 与抓取的 AAStocks/雪球数据按 code 合并，sample 的 status 字段优先（更准）
+  // ⚠ 维护说明：每次新股上市后，把"招股中"的标的状态改为"已上市"并保留至少 7 天，便于用户复盘
   return [
-    { code: '02290.HK', name: '龙丰集团',  priceLow: 5.18,  priceHigh: 6.38,  lotSize: 500, listingDate: '2026-06-05', mechanism: 'B', issueLots: 25000, issueAmount: 1450,  entryFeeMid: 3223, status: '招股中', source: 'i668' },
-    { code: '01081.HK', name: '大金重工',  priceLow: 66.4,  priceHigh: 66.4,  lotSize: 100, listingDate: '2026-06-05', mechanism: 'B', issueLots: 86966, issueAmount: 57746, entryFeeMid: 6707, status: '招股中', source: 'i668' },
-    { code: '01779.HK', name: '天辰生物',  priceLow: 96.06, priceHigh: 96.06, lotSize: 50,  listingDate: '2026-06-05', mechanism: 'B', issueLots: 28387, issueAmount: 13632, entryFeeMid: 4852, status: '招股中', source: 'i668' },
-    { code: '02553.HK', name: '首钢朗泽',  priceLow: 17.1,  priceHigh: 17.1,  lotSize: 200, listingDate: '2026-06-03', mechanism: 'B', issueLots: 20000, issueAmount: 3420,  entryFeeMid: 3455, status: '待上市', source: 'i668' },
+    // ─── 招股中（subscribing） ───
+    { code: '02290.HK', name: '龙丰集团',  priceLow: 5.18,  priceHigh: 6.38,  lotSize: 500, listingDate: '2026-06-05', subscriptionEnd: '2026-06-02', mechanism: 'B', issueLots: 25000, issueAmount: 1450,  entryFeeMid: 3223, status: '招股中', source: 'i668' },
+    { code: '01081.HK', name: '大金重工',  priceLow: 66.4,  priceHigh: 66.4,  lotSize: 100, listingDate: '2026-06-05', subscriptionEnd: '2026-06-02', mechanism: 'B', issueLots: 86966, issueAmount: 57746, entryFeeMid: 6707, status: '招股中', source: 'i668' },
+    { code: '01779.HK', name: '天辰生物-B', priceLow: 96.06, priceHigh: 96.06, lotSize: 50,  listingDate: '2026-06-05', subscriptionEnd: '2026-06-02', mechanism: 'B', issueLots: 28387, issueAmount: 13632, entryFeeMid: 4852, status: '招股中', source: 'i668' },
+    { code: '02553.HK', name: '首钢朗泽',  priceLow: 14.6,  priceHigh: 17.1,  lotSize: 200, listingDate: '2026-06-03', subscriptionEnd: '2026-05-29', mechanism: 'B', issueLots: 20000, issueAmount: 3420,  entryFeeMid: 3455, status: '待上市', source: 'i668' },
+    // ─── 最近 7 天已上市（用于复盘 / 暗盘对照 / 防止误归"待上市"） ───
+    { code: '03418.HK', name: '华夏数字黄金',     priceLow: 7.78,  priceHigh: 7.78,  lotSize: 100, listingDate: '2026-05-29', mechanism: 'OTHER', status: '已上市', source: 'i668' },
+    { code: '09418.HK', name: '华夏数字黄金-U',   priceLow: 1.0,   priceHigh: 1.0,   lotSize: 100, listingDate: '2026-05-29', mechanism: 'OTHER', status: '已上市', source: 'i668' },
+    { code: '83418.HK', name: '华夏数字黄金-R',   priceLow: 7.78,  priceHigh: 7.78,  lotSize: 100, listingDate: '2026-05-29', mechanism: 'OTHER', status: '已上市', source: 'i668' },
+    { code: '03388.HK', name: '创想三维',          priceLow: 18.8,  priceHigh: 18.8,  lotSize: 200, listingDate: '2026-05-29', mechanism: 'B', status: '已上市', source: 'i668' },
+    { code: '03310.HK', name: '云英谷科技',        priceLow: 20.81, priceHigh: 20.81, lotSize: 200, listingDate: '2026-05-27', mechanism: 'B', status: '已上市', source: 'i668' },
   ]
+}
+
+// 从 sample 中提取最近上市/招股的 code → status 映射，作为与抓取数据融合时的权威覆盖
+export function getSampleStatusMap(): Record<string, IpoCalendarEntry> {
+  const map: Record<string, IpoCalendarEntry> = {}
+  for (const e of sampleIpoCalendar()) {
+    if (e.code) map[e.code] = e
+  }
+  return map
 }
 
 export function parseClipboardCalendar(raw: string): IpoCalendarEntry[] {
